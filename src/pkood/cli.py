@@ -252,12 +252,10 @@ def list_agents(args):
         print("No active agents found.")
         return
 
-    print(f"{'AGENT ID':<15} | {'STATUS':<10} | {'LOG':<8} | {'FOCUS'}")
-    print("-" * 60)
+    print(f"{'AGENT ID':<20} | {'STATUS':<10} | {'LOG'}")
+    print("-" * 50)
     for a in agents:
-        print(
-            f"{a['agent_id']:<15} | {a['status']:<10} | {a['log_size']:<8} | {a['focus']}"
-        )
+        print(f"{a['agent_id']:<20} | {a['status']:<10} | {a['log_size']}")
 
 
 def attach(args):
