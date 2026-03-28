@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pkood"
-version = "0.1.0"
+version = "0.6.0"
 description = "An Agentic Operations (AgOps) orchestrator for recursive, parallel development."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "CC0-1.0"}
 authors = [
-  {name = "Tal Franji", email = "[tal.franji@gmail.com]"}
+  {name = "Tal Franji", email = "tal.franji@gmail.com"}
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -18,7 +18,9 @@ classifiers = [
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",
 ]
-dependencies = []
+dependencies = [
+    "mcp[cli]",
+]
 
 [project.scripts]
 pkood = "pkood.cli:main"
