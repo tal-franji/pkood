@@ -548,6 +548,32 @@ def test_pkood(args):
     else:
         print("Claude Code: Not found")
 
+    # 3. MCP Service Check
+    print("\n--- MCP Service Check ---")
+    pid_file = BASE_DIR / "mcp.pid"
+    mcp_running = False
+    if pid_file.exists():
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            mcp_running = True
+        except (ValueError, ProcessLookupError, PermissionError):
+            pid_file.unlink()
+
+    if mcp_running:
+        print("MCP Service Status: RUNNING")
+    else:
+        print("   [!] MCP Service Status: NOT RUNNING")
+        if ask_confirmation("       Would you like to start the MCP service now?"):
+            # Create a mock args object for cmd_mcp
+            mcp_args = argparse.Namespace(external_unsafe=False, port=8000)
+            cmd_mcp(mcp_args)
+            # Give it a second to start
+            time.sleep(1)
+        else:
+            print("       Skipping MCP service startup.")
+
     if not all_passed:
         print(
             "\n[!] Pre-flight checks failed. Please resolve the issues above and try again."

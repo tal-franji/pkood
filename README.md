@@ -16,9 +16,15 @@ Run tens of agent sessions (Claude-code / Gemini-CLI) in parallel. Monitor them 
 3. **Install from Source**:
    Clone the repository and install in editable mode:
    ```bash
-   git clone https://github.com/your-username/pkood.git
+   git clone https://github.com/tal-franji/pkood.git
    cd pkood
    pip install -e .
+   ```
+
+4. **Verify and Configure**:
+   Run the system check to ensure Tmux is installed and to automatically configure your AI agents (Gemini CLI / Claude Code) to talk to the Pkood control plane:
+   ```bash
+   pkood test
    ```
 
 ## Operation
@@ -61,7 +67,34 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   pkood kill research-task
   ```
 
+- **Inject input**:
+  Send text directly to a background agent's terminal (e.g. to unblock a prompt).
+  ```bash
+  pkood inject research-task "y"
+  ```
+
 ### Key Shortcuts (within a session)
 - **Detach**: `Ctrl+B` followed by `D`
 - **Scroll Mode**: `Ctrl+B` followed by `[` (Press `q` to exit)
 - **Force Exit**: `Ctrl+D` (This kills the agent and closes the session)
+
+## The AgOps Control Plane (MCP)
+
+Pkood includes a built-in **Model Context Protocol (MCP)** server. This transforms Pkood from a simple CLI tool into an orchestration layer that your AI agents can use to manage each other.
+
+### Starting the Control Plane
+To allow agents to see and interact with the fleet, start the MCP service:
+```bash
+pkood mcp
+```
+*(Runs on `http://localhost:8000/sse` by default)*
+
+### What Agents Can Do
+Once your agents (like Gemini CLI or Claude Code) are connected to the Pkood MCP, they gain "fleet awareness." You can give them high-level commands like:
+
+*   **Fleet Summarization**: *"Check the logs of all active agents and give me a 1-sentence status report for each."*
+*   **Remote Unblocking**: *"I see the 'worker-1' agent is stuck on a confirmation. Send it a 'y' to continue."*
+*   **Autonomous Spawning**: *"Once 'data-cleanup' finishes, spawn a new agent to run the 'training-job'."*
+*   **Deep Log Analysis**: *"Search through all agent logs for any 'OutOfMemory' errors."*
+
+By exposing the low-level Tmux primitives as structured MCP tools, Pkood enables a recursive, multi-agent development workflow where one "Manager" agent can coordinate a fleet of specialized workers.
