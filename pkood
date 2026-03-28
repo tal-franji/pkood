@@ -1,3 +1,0 @@
-#!/bin/bash
-# Pkood Wrapper Script
-python3 "$(dirname "$0")/pkood.py" "$@"
