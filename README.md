@@ -74,6 +74,8 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   ```
 
 ### Key Shortcuts (within a session)
+After attaching to the session you can use the following Tmux keys:
+
 - **Detach**: `Ctrl+B` followed by `D`
 - **Scroll Mode**: `Ctrl+B` followed by `[` (Press `q` to exit)
 - **Force Exit**: `Ctrl+D` (This kills the agent and closes the session)

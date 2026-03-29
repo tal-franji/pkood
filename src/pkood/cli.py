@@ -435,24 +435,32 @@ def fix_gemini_config():
 
 
 def fix_claude_config():
-    """Adds the Pkood MCP server to Claude Code config using its CLI."""
+    """Adds the Pkood MCP server to Claude Code config by editing ~/.claude.json directly."""
+    config_path = Path.home() / ".claude.json"
+
+    config = {}
+    if config_path.exists():
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"   Error reading Claude configuration: {e}")
+            return False
+
+    # Claude Code uses "mcpServers" at the top level
+    if "mcpServers" not in config:
+        config["mcpServers"] = {}
+
+    # Claude Code expects the server definition
+    config["mcpServers"]["pkood"] = {"url": "http://127.0.0.1:8000/sse"}
+
     try:
-        # We use 'claude mcp add' because it handles both stdio and SSE (if supported)
-        # or at least modifies the config file safely.
-        # Note: If Claude doesn't support SSE directly, this command might fail or do nothing,
-        # but it's the official way to add servers.
-        subprocess.run(
-            ["claude", "mcp", "add", "pkood", "http://127.0.0.1:8000/sse"],
-            check=True,
-            capture_output=True,
-        )
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
         print("   Claude Code configuration updated successfully.")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"   Error updating Claude Code via CLI: {e.stderr.decode().strip()}")
-        return False
     except Exception as e:
-        print(f"   Unexpected error updating Claude Code: {e}")
+        print(f"   Error writing Claude configuration: {e}")
         return False
 
 
