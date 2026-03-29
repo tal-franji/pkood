@@ -31,8 +31,18 @@ class PkoodWatcher:
         """Identifies if the agent is waiting for user input."""
         if not content:
             return False
-        last_lines = content.strip().splitlines()[-5:]
-        indicators = ["(y/n)", "confirm?", "password:", "[y/n]", "approval", ">"]
+        last_lines = content.strip().splitlines()[-30:]
+        indicators = [
+            "(y/n)",
+            "confirm?",
+            "password:",
+            "[y/n]",
+            "approval",
+            "action required",
+            "allow execution",
+            "allow this tool",
+            "loop detection",
+        ]
         return any(ind in line.lower() for line in last_lines for ind in indicators)
 
     def update_state(self):
