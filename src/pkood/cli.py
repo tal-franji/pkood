@@ -481,6 +481,77 @@ def fix_claude_config():
         return False
 
 
+def install_pkood_skill(agent_type):
+    """Installs the SKILL.md for the specified agent type."""
+    skill_content = """---
+name: pkood
+description: Manage and orchestrate multiple background AI agents using Pkood.
+---
+# Pkood AgOps Manager Skill
+
+You are a Fleet Manager for Pkood background agents. You have access to the `pkood` MCP server and its tools.
+
+## CRITICAL MANDATE
+When a user asks for a "pkood summary", "fleet status", or anything involving "pkood agents",
+you **MUST NOT** use your standard codebase tools (like codebase_investigator).
+Instead, you **MUST** use the `pkood` MCP tools.
+
+## Your Mission
+1. **Fleet Awareness**: Use `pkood:list_agents` and `pkood:tail_agents` to monitor the status of background tasks.
+2. **Orchestration**: Use `pkood:spawn_agent` to create new background tasks.
+3. **Recovery**: Use `pkood:inject_to_agent` to unblock agents waiting for input.
+4. **Log Analysis**: Use `pkood:get_log_directory` to perform deep searches across the fleet's history.
+
+## Standard Procedures
+- When summarizing, use a concise plain ASCII table.
+- If an agent is 'BLOCKED', always check its logs using `pkood:tail_agents` and try to understand why before reporting.
+- You are running in an environment where folder trust is pre-authorized by Pkood.
+"""
+    if agent_type == "gemini":
+        path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
+    elif agent_type == "claude":
+        path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
+    else:
+        return False
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(skill_content)
+        return True
+    except Exception as e:
+        print(f"   Error installing skill for {agent_type}: {e}")
+        return False
+
+
+def install_pkood_commands(agent_type):
+    """Installs slash commands for the specified agent type."""
+    status_prompt = (
+        "Call the pkood:list_agents and pkood:tail_agents MCP tools. "
+        "Analyze the output and provide a concise, one-sentence summary of what each active agent is currently doing. "
+        "Present the final results in a plain ASCII table with columns: Agent ID, Status, and Summary. "
+        "If an agent is BLOCKED, explicitly explain why in the Summary column."
+    )
+
+    try:
+        if agent_type == "gemini":
+            path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as f:
+                f.write(
+                    f'description = "Show the status of all Pkood agents"\nprompt = "{status_prompt}"\n'
+                )
+        elif agent_type == "claude":
+            path = Path.home() / ".claude" / "commands" / "pkood:status.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as f:
+                f.write(f"# /pkood:status\n{status_prompt}\n")
+        return True
+    except Exception as e:
+        print(f"   Error installing commands for {agent_type}: {e}")
+        return False
+
+
 def test_pkood(args):
     print("Running Pkood System Tests...\n")
     all_passed = True
@@ -541,6 +612,19 @@ def test_pkood(args):
                 fix_gemini_config()
             else:
                 print("       Skipping Gemini CLI configuration.")
+
+        # Skill & Command check
+        skill_path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
+        cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
+        if skill_path.exists() and cmd_path.exists():
+            print("   Pkood Skill & Commands: OK")
+        else:
+            print("   [!] Pkood Skill & Commands: MISSING")
+            if ask_confirmation(
+                "       Would you like to install Pkood Skills and Slash Commands for Gemini CLI?"
+            ):
+                install_pkood_skill("gemini")
+                install_pkood_commands("gemini")
     else:
         print("Gemini CLI: Not found")
 
@@ -570,6 +654,19 @@ def test_pkood(args):
                 fix_claude_config()
             else:
                 print("       Skipping Claude Code configuration.")
+
+        # Skill & Command check
+        skill_path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
+        cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
+        if skill_path.exists() and cmd_path.exists():
+            print("   Pkood Skill & Commands: OK")
+        else:
+            print("   [!] Pkood Skill & Commands: MISSING")
+            if ask_confirmation(
+                "       Would you like to install Pkood Skills and Slash Commands for Claude Code?"
+            ):
+                install_pkood_skill("claude")
+                install_pkood_commands("claude")
     else:
         print("Claude Code: Not found")
 

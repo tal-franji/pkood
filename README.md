@@ -6,7 +6,7 @@ Run tens of agent sessions (Claude-code / Gemini-CLI) in parallel. Monitor them 
 
 1. **Requirements**: 
    - Python 3.10+
-   - `tmux` (Available via `brew install tmux` on macOS or `sudo apt install tmux` on Linux/WSL2).
+   - `tmux` (Available via `brew install tmux` on macOS or `sudo apt install tmux` on Linux/Windows:WSL2).
 
 2. **Install via PyPI**:
    ```bash
@@ -50,8 +50,6 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   Shows all agents, their current status (RUNNING, BLOCKED, or EXITED), and log sizes.
   ```bash
   pkood ls
-  # or
-  pkood ps
   ```
 
 - **Attach to a session**:
@@ -79,6 +77,22 @@ After attaching to the session you can use the following Tmux keys:
 - **Detach**: `Ctrl+B` followed by `D`
 - **Scroll Mode**: `Ctrl+B` followed by `[` (Press `q` to exit)
 - **Force Exit**: `Ctrl+D` (This kills the agent and closes the session)
+
+## Skills and Slash Commands
+
+Pkood can install skills and slash commands for AI agents (Gemini CLI / Claude Code) to allow them to interact with the Pkood control plane.
+
+### Install Skills and Slash Commands
+
+```bash
+pkood test
+```
+
+### Use the Skills and Slash Commands
+Show all active agents and their status:
+```bash
+/pkood:status
+```
 
 ## The AgOps Control Plane (MCP)
 
@@ -114,4 +128,5 @@ While Claude Code's `/batch` skill is excellent for quick, sequential automation
 | **Workflow** | Sequential local tasks | **AgOps Orchestration** (Agents manage agents) |
 
 **Use `/batch`** when you want to automate 10 small local edits in your current session.
+
 **Use Pkood** when you want to run a fleet of independent agents that work autonomously across different projects and require high-level coordination.
