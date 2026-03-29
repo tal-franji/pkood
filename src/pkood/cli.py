@@ -330,6 +330,20 @@ def kill_agent(args):
 def cmd_mcp(args):
     """Manages the background MCP service."""
     ensure_dirs()
+
+    # If stdio mode is requested, run the server in the foreground
+    if getattr(args, "stdio", False):
+        mcp_server_path = Path(__file__).parent / "mcp_server.py"
+        env = os.environ.copy()
+        env["PYTHONPATH"] = (
+            str(Path(__file__).parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
+        )
+        # We replace the current process with the MCP server
+        os.execve(
+            sys.executable, [sys.executable, str(mcp_server_path), "--stdio"], env
+        )
+        return
+
     pid_file = BASE_DIR / "mcp.pid"
 
     # Check if already running
@@ -451,13 +465,16 @@ def fix_claude_config():
     if "mcpServers" not in config:
         config["mcpServers"] = {}
 
-    # Claude Code expects the server definition
-    config["mcpServers"]["pkood"] = {"url": "http://127.0.0.1:8000/sse"}
+    # For Claude Code (CLI), stdio is the most reliable transport
+    config["mcpServers"]["pkood"] = {
+        "command": sys.executable,
+        "args": [str(Path(__file__).resolve().parent / "cli.py"), "mcp", "--stdio"],
+    }
 
     try:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print("   Claude Code configuration updated successfully.")
+        print("   Claude Code configuration updated successfully (using stdio).")
         return True
     except Exception as e:
         print(f"   Error writing Claude configuration: {e}")
@@ -699,6 +716,9 @@ def main():
     )
     mcp_parser.add_argument(
         "--port", type=int, default=8000, help="Port to bind to (default: 8000)"
+    )
+    mcp_parser.add_argument(
+        "--stdio", action="store_true", help="Run in stdio mode (for local AI agents)"
     )
 
     # Test
