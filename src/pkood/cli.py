@@ -533,19 +533,53 @@ def install_pkood_commands(agent_type):
         "If an agent is BLOCKED, explicitly explain why in the Summary column."
     )
 
+    start_prompt = (
+        "You are tasked with starting a new background Pkood agent to fulfill the user's request.\n"
+        "Follow these steps carefully:\n"
+        "1. Analyze the user's request. If the request is ambiguous or missing critical details "
+        "(e.g., what task to perform or which directory to use), stop and ask the user for clarification before proceeding.\n"
+        "2. Once clear, determine:\n"
+        "   - A short, unique name for the new agent.\n"
+        "   - The target working directory (default to the current workspace root if unspecified).\n"
+        "   - A comprehensive prompt that captures exactly what the user wants the agent to do.\n"
+        "3. Use the `spawn_agent` tool to start the agent. For the command, use `gemini` or `claude` (default to the agent CLI you are currently using).\n"
+        "4. Iteratively monitor the agent's startup using `tail_agents`.\n"
+        '5. The newly spawned CLI will likely ask initial interactive questions (e.g., "Do you trust this folder?"). '
+        "Use `inject_to_agent` to send 'y' (or other required inputs) to bypass these startup prompts.\n"
+        "6. Continue checking `tail_agents` and injecting answers until you see a standard prompt indicating the agent is ready for instructions.\n"
+        "7. Use `inject_to_agent` to send the comprehensive prompt you drafted in step 2.\n"
+        "8. Verify the agent received the instruction, then report back to the user that the agent is successfully running in the background."
+    )
+
     try:
         if agent_type == "gemini":
-            path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w") as f:
+            # Status command
+            status_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(status_path, "w") as f:
                 f.write(
                     f'description = "Show the status of all Pkood agents"\nprompt = "{status_prompt}"\n'
                 )
+
+            # Start command
+            start_path = Path.home() / ".gemini" / "commands" / "pkood" / "start.toml"
+            start_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(start_path, "w") as f:
+                f.write(
+                    f'description = "Start a new Pkood agent session and assign it a task"\nprompt = """{start_prompt}"""\n'
+                )
         elif agent_type == "claude":
-            path = Path.home() / ".claude" / "commands" / "pkood:status.md"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w") as f:
+            # Status command
+            status_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(status_path, "w") as f:
                 f.write(f"# /pkood:status\n{status_prompt}\n")
+
+            # Start command
+            start_path = Path.home() / ".claude" / "commands" / "pkood:start.md"
+            start_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(start_path, "w") as f:
+                f.write(f"# /pkood:start\n{start_prompt}\n")
         return True
     except Exception as e:
         print(f"   Error installing commands for {agent_type}: {e}")

@@ -89,7 +89,7 @@ pkood test
 ```
 
 ### Use the Skills and Slash Commands
-Show all active agents and their status:
+Show all active agents, their status and an intelligent summary of what they are doing:
 ```bash
 /pkood:status
 ```
