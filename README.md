@@ -100,3 +100,18 @@ Once your agents (like Gemini CLI or Claude Code) are connected to the Pkood MCP
 *   **Deep Log Analysis**: *"Search through all agent logs for any 'OutOfMemory' errors."*
 
 By exposing the low-level Tmux primitives as structured MCP tools, Pkood enables a recursive, multi-agent development workflow where one "Manager" agent can coordinate a fleet of specialized workers.
+
+## Comparison: Pkood vs. Claude `/batch`
+
+While Claude Code's `/batch` skill is excellent for quick, sequential automation, Pkood is designed for long-running, autonomous operations.
+
+| Feature | Claude `/batch` | Pkood |
+| :--- | :--- | :--- |
+| **Persistence** | Ephemeral (stops if terminal closes) | **Persistent** (runs in background via Tmux) |
+| **Visibility** | Simple progress status | **Full Terminal Attachment** (`pkood attach`) |
+| **Context** | Single-session focus | **Fleet-wide awareness** via MCP |
+| **Control** | Stop/Start only | **Inject input**, search logs, and manage state |
+| **Workflow** | Sequential local tasks | **AgOps Orchestration** (Agents manage agents) |
+
+**Use `/batch`** when you want to automate 10 small local edits in your current session.
+**Use Pkood** when you want to run a fleet of independent agents that work autonomously across different projects and require high-level coordination.
