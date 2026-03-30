@@ -39,71 +39,26 @@ class PkoodWatcher:
 
         last_lines = content.strip().splitlines()[-30:]
 
-        if self.agent_type == "gemini":
-            # 1. IDLE: At the main prompt, ready for a new task.
-            # The string "type your message" only appears when the main input box is focused and empty.
-            idle_indicators = ["type your message"]
-            if any(
-                ind in line.lower()
-                for line in last_lines[-10:]
-                for ind in idle_indicators
-            ):
-                return "IDLE"
+        # Use the AgentProduct abstraction for indicators
+        from pkood.common import get_agent_product
 
-            # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
-            indicators = [
-                "(y/n)",
-                "confirm?",
-                "password:",
-                "[y/n]",
-                "approval",
-                "action required",
-                "allow execution",
-                "allow this tool",
-                "allow all server tools",
-                "loop detection",
-            ]
-            if any(ind in line.lower() for line in last_lines for ind in indicators):
-                return "BLOCKED"
+        product = get_agent_product(self.agent_type)
 
-        elif self.agent_type == "claude":
-            # 1. IDLE: At the main prompt, ready for a new task.
-            # Claude usually has a persistent Ctrl+C hint when at the prompt
-            idle_indicators = ["(ctrl+c to exit)", "? for shortcuts"]
-            if any(
-                ind in line.lower()
-                for line in last_lines[-10:]
-                for ind in idle_indicators
-            ):
-                return "IDLE"
+        # 1. IDLE: At the main prompt, ready for a new task.
+        if any(
+            ind in line.lower()
+            for line in last_lines[-10:]
+            for ind in product.idle_indicators
+        ):
+            return "IDLE"
 
-            # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
-            indicators = [
-                "(y/n)",
-                "confirm?",
-                "password:",
-                "[y/n]",
-                "approve?",
-                "press enter to confirm",
-                "do you want to proceed?",
-                "trust?",
-                "trust this",
-            ]
-            if any(ind in line.lower() for line in last_lines for ind in indicators):
-                return "BLOCKED"
-
-        else:
-            # Generic fallback
-            idle_indicators = ["> ", "$ "]
-            if any(
-                ind in line.lower()
-                for line in last_lines[-5:]
-                for ind in idle_indicators
-            ):
-                return "IDLE"
-            indicators = ["(y/n)", "confirm?", "password:", "[y/n]", "approval"]
-            if any(ind in line.lower() for line in last_lines for ind in indicators):
-                return "BLOCKED"
+        # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
+        if any(
+            ind in line.lower()
+            for line in last_lines
+            for ind in product.blocked_indicators
+        ):
+            return "BLOCKED"
 
         # 3. RUNNING: Actively thinking, executing tools, or streaming output.
         return "RUNNING"

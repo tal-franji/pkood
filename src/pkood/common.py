@@ -27,6 +27,21 @@ def get_tmux_cmd(agent_id):
     return ["tmux", "-S", str(socket_path)]
 
 
+def get_agent_product(agent_type):
+    """Factory to get the appropriate AgentProduct implementation."""
+    if agent_type == "gemini":
+        from pkood.gemini_cli import GeminiAgentProduct
+
+        return GeminiAgentProduct()
+    if agent_type == "claude":
+        from pkood.claude_code import ClaudeAgentProduct
+
+        return ClaudeAgentProduct()
+    from pkood.generic_product import GenericAgentProduct
+
+    return GenericAgentProduct()
+
+
 def create_agent(agent_id, directory, command):
     ensure_dirs()
 
@@ -139,6 +154,8 @@ def inject_text_to_agent(agent_id, text):
     if type_file.exists():
         agent_type = type_file.read_text().strip()
 
+    product = get_agent_product(agent_type)
+
     # Strip trailing newlines to avoid double-enter confusion
     text = text.rstrip("\r\n")
 
@@ -173,25 +190,8 @@ def inject_text_to_agent(agent_id, text):
                 check=True,
             )
 
-            if agent_type == "gemini":
-                # Long prompts for prompt_toolkit: require Escape then Enter
-                time.sleep(0.1)
-                subprocess.run(
-                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "Escape"],
-                    check=True,
-                )
-                time.sleep(0.2)
-                subprocess.run(
-                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
-                    check=True,
-                )
-            else:
-                # Claude Code or generic shell just needs Enter
-                time.sleep(0.1)
-                subprocess.run(
-                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
-                    check=True,
-                )
+            # Delegate submission keystrokes to the specific product implementation
+            product.perform_long_inject(agent_id, text, get_tmux_cmd)
 
             # Cleanup buffer
             subprocess.run(
