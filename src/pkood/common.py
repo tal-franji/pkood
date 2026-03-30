@@ -368,6 +368,15 @@ def install_pkood_commands(agent_type):
         "user that the agent is successfully running in the background."
     )
 
+    kill_prompt = (
+        "You are tasked with killing a Pkood background agent.\n"
+        "1. Identify the agent name provided by the user in their request.\n"
+        "2. If no agent name is provided, ask the user to specify one "
+        "(you can use `list_agents` to show them the active agents).\n"
+        "3. Use the `kill_agent` MCP tool to terminate the specified agent.\n"
+        "4. Confirm to the user that the agent has been killed."
+    )
+
     try:
         if agent_type == "gemini":
             # Status command
@@ -386,6 +395,15 @@ def install_pkood_commands(agent_type):
                     'description = "Start a new Pkood agent session and assign it a task"\n'
                     f'prompt = """{start_prompt}"""\n'
                 )
+
+            # Kill command
+            kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
+            kill_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(kill_path, "w") as f:
+                f.write(
+                    'description = "Kill an active Pkood background agent"\n'
+                    f'prompt = """{kill_prompt}"""\n'
+                )
         elif agent_type == "claude":
             # Status command
             status_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
@@ -398,6 +416,12 @@ def install_pkood_commands(agent_type):
             start_path.parent.mkdir(parents=True, exist_ok=True)
             with open(start_path, "w") as f:
                 f.write(f"# /pkood:start\n{start_prompt}\n")
+
+            # Kill command
+            kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
+            kill_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(kill_path, "w") as f:
+                f.write(f"# /pkood:kill\n{kill_prompt}\n")
         return True
     except Exception as e:
         print(f"   Error installing commands for {agent_type}: {e}")

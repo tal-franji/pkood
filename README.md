@@ -34,11 +34,11 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
 ### Commands
 
 - **Start an interactive session**:
-  Creates a new session running your default shell in the specified directory and attaches to it immediately.
+  Creates a new session running your default shell or a specified CLI agent in the given directory and attaches to it immediately.
   ```bash
-  pkood start --dir ./my-project
+  pkood start --dir ./my-project --cmd claude
   ```
-  *Note: The session name defaults to the directory name if `--name` is omitted.*
+  *Note: The session name defaults to the directory name if `--name` is omitted. If `--cmd` is omitted, Pkood will try to auto-detect installed agents or fall back to your standard shell.*
 
 - **Spawn a background agent**:
   Runs a specific command in a managed background session.
@@ -47,7 +47,7 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   ```
 
 - **List active agents**:
-  Shows all agents, their current status (RUNNING, BLOCKED, or EXITED), and log sizes.
+  Shows all agents, their current status (RUNNING, IDLE, BLOCKED, or EXITED), and log sizes.
   ```bash
   pkood ls
   ```
@@ -89,12 +89,25 @@ pkood test
 ```
 
 ### Use the Skills and Slash Commands
-Show all active agents, their status and an intelligent summary of what they are doing:
-```bash
-/pkood:status
-```
+Pkood installs custom slash commands into your AI CLI to make fleet management seamless.
+
+*   **View Fleet Status:** Show all active agents, their status, and an intelligent summary of what they are doing.
+    ```bash
+    /pkood:status
+    ```
+*   **Spawn a Sub-Agent:** Instruct your current agent to act as a Fleet Manager, parse your request, and spawn a new background agent to handle the task autonomously.
+    ```bash
+    /pkood:start
+    Write a Python script that finds the first 4 perfect numbers.
+    ```
+*   **Kill an Agent:** Ask your current agent to terminate a specific background task.
+    ```bash
+    /pkood:kill <agent_name>
+    ```
 
 ## The AgOps Control Plane (MCP)
+This is the internal service used by the skills and slash commands. You do not need to use it directly.
+
 
 Pkood includes a built-in **Model Context Protocol (MCP)** server. This transforms Pkood from a simple CLI tool into an orchestration layer that your AI agents can use to manage each other.
 

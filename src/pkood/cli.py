@@ -82,7 +82,7 @@ def get_agents_status():
     return results
 
 
-def get_all_tails(include_summarizer=False):
+def get_all_tails(include_summarizer=False, filter_id=None):
     """Returns a dictionary of agent IDs and their cleaned tail output."""
     ensure_dirs()
     sockets = list(SOCKETS_DIR.glob("*.sock"))
@@ -90,6 +90,8 @@ def get_all_tails(include_summarizer=False):
 
     for sock in sockets:
         agent_id = sock.stem
+        if filter_id and agent_id != filter_id:
+            continue
         if not include_summarizer and agent_id == "pkood-summarizer":
             continue
 
@@ -129,9 +131,12 @@ def get_all_tails(include_summarizer=False):
 
 def cmd_tail(args):
     """The 'tail' command: outputs the last 50 lines of logs for all active agents."""
-    tails = get_all_tails()
+    tails = get_all_tails(filter_id=args.name)
     if not tails:
-        print("No active agents found.")
+        if args.name:
+            print(f"Agent '{args.name}' not found or not active.")
+        else:
+            print("No active agents found.")
         return
 
     for agent_id, clean_text in tails.items():
@@ -157,20 +162,25 @@ def start(args):
         # Default name to current directory name
         agent_id = Path(args.dir).resolve().name
 
-    # Auto-detect agent or fallback to shell
-    available_agents = auto_detect_agent()
-
-    if len(available_agents) == 1:
-        launch_cmd = available_agents[0]
-        print(f"Auto-detected agent: {launch_cmd}")
-    elif len(available_agents) > 1:
-        launch_cmd = os.environ.get("SHELL", "bash")
-        print(
-            f"Found multiple agents ({', '.join(available_agents)}). Defaulting to shell: {launch_cmd}"
-        )
+    # Check if a specific command was requested
+    if hasattr(args, "cmd") and args.cmd:
+        launch_cmd = args.cmd
+        print(f"Using requested agent command: {launch_cmd}")
     else:
-        launch_cmd = os.environ.get("SHELL", "bash")
-        print(f"No agents detected. Defaulting to shell: {launch_cmd}")
+        # Auto-detect agent or fallback to shell
+        available_agents = auto_detect_agent()
+
+        if len(available_agents) == 1:
+            launch_cmd = available_agents[0]
+            print(f"Auto-detected agent: {launch_cmd}")
+        elif len(available_agents) > 1:
+            launch_cmd = os.environ.get("SHELL", "bash")
+            print(
+                f"Found multiple agents ({', '.join(available_agents)}). Defaulting to shell: {launch_cmd}"
+            )
+        else:
+            launch_cmd = os.environ.get("SHELL", "bash")
+            print(f"No agents detected. Defaulting to shell: {launch_cmd}")
 
     if create_agent(agent_id, args.dir, launch_cmd):
         print(f"Starting interactive session for '{agent_id}'...")
@@ -295,14 +305,20 @@ def main():
     )
     start_parser.add_argument("--name", help="Unique name (defaults to directory name)")
     start_parser.add_argument("--dir", default=".", help="Directory to start in")
+    start_parser.add_argument(
+        "--cmd",
+        help="Specific CLI command to launch (e.g., 'gemini', 'claude'). "
+        "If omitted, auto-detects or falls back to shell.",
+    )
 
     # List
     subparsers.add_parser("list", aliases=["ls", "ps"], help="List all running agents")
 
     # Tail
-    subparsers.add_parser(
+    tail_parser = subparsers.add_parser(
         "tail", help="Output the last 50 lines of logs for all active agents"
     )
+    tail_parser.add_argument("name", nargs="?", help="Optional name of the agent")
 
     # Attach
     attach_parser = subparsers.add_parser("attach", help="Attach to an agent session")

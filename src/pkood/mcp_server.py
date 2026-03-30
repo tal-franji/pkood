@@ -47,9 +47,14 @@ if __name__ == "__main__":
             return f"Failed to spawn agent '{name}'."
 
     @mcp.tool()
-    def tail_agents():
-        """Get the last 50 lines of logs from all active agents."""
-        return get_all_tails()
+    def tail_agents(name: str = None):
+        """
+        Get the last 50 lines of logs from active agents.
+
+        Args:
+            name: Optional unique identifier of the agent. If omitted, returns logs for all active agents.
+        """
+        return get_all_tails(filter_id=name)
 
     @mcp.tool()
     def kill_agent(name: str):

@@ -143,9 +143,23 @@ def run_agent_integration_suite(agent_cmd, display_name):
         if all_passed and not wait_for_idle(full_agent_id, label="After Multiline"):
             all_passed = False
 
+        # Test 3: Realistic Massive Multiline
+        massive_test = (
+            "Create a Python script named `perfect_numbers.py` that finds and prints "
+            "the first 4 perfect numbers. Include a brief explanation in comments and test it to ensure correctness.\n"
+            "run bash -c 'echo PK_MASSIVE_SUCCESS'"
+        )
+        if all_passed and not verify_injection(full_agent_id, massive_test):
+            all_passed = False
+
+        if all_passed and not wait_for_idle(
+            full_agent_id, label="After Massive Multiline"
+        ):
+            all_passed = False
+
         # Verify logs
         log_content = log_path.read_text(errors="ignore") if log_path.exists() else ""
-        if "PK_MULTILINE_2" in log_content:
+        if "PK_MULTILINE_2" in log_content and "PK_MASSIVE_SUCCESS" in log_content:
             print("   [OK] Injection Phase 1 verified.")
         else:
             print("   [!] Injection Phase 1 verification failed in logs.")
@@ -298,7 +312,8 @@ def test_pkood(args):
         # Skill & Command check
         skill_path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
         cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
-        if skill_path.exists() and cmd_path.exists():
+        kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
+        if skill_path.exists() and cmd_path.exists() and kill_path.exists():
             # Always update to ensure latest version
             install_pkood_skill("gemini")
             install_pkood_commands("gemini")
@@ -351,7 +366,8 @@ def test_pkood(args):
         # Skill & Command check
         skill_path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
         cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
-        if skill_path.exists() and cmd_path.exists():
+        kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
+        if skill_path.exists() and cmd_path.exists() and kill_path.exists():
             # Always update to ensure latest version
             install_pkood_skill("claude")
             install_pkood_commands("claude")
