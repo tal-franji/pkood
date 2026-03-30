@@ -117,11 +117,23 @@ class PkoodWatcher:
         status = self.determine_status(content)
         lines = content.splitlines()
         last_line = lines[-1] if lines else ""
+        current_time = time.time()
+
+        update_ts = current_time
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, "r") as f:
+                    old_meta = json.load(f)
+                    if old_meta.get("status") == status:
+                        update_ts = old_meta.get("update_ts", current_time)
+            except Exception:
+                pass
 
         metadata = {
             "agent_id": self.agent_id,
-            "timestamp": time.time(),
+            "timestamp": current_time,
             "status": status,
+            "update_ts": update_ts,
             "is_stuck": (status == "BLOCKED"),
             "last_output_snippet": last_line,
         }

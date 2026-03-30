@@ -145,14 +145,14 @@ def inject_text_to_agent(agent_id, text):
     try:
         short_responses = {"y", "n", "yes", "no", "1", "2", "3", "4", "5"}
         if text.strip().lower() in short_responses:
-            # Short answers for Inquirer-style prompts: do NOT use bracketed paste 
+            # Short answers for Inquirer-style prompts: do NOT use bracketed paste
             # because the Escape sequence in bracketed paste cancels the prompt.
             # Just send the keys directly.
             subprocess.run(
                 get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", text],
                 check=True,
             )
-            # Add a tiny delay to allow Node.js UI frameworks (like Clack or Inquirer) 
+            # Add a tiny delay to allow Node.js UI frameworks (like Clack or Inquirer)
             # to process the character and update their internal selection state.
             time.sleep(0.1)
             subprocess.run(

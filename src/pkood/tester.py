@@ -36,7 +36,7 @@ def run_full_integration_tests(agent_cmd="gemini"):
     if create_agent(full_agent_id, str(Path.cwd()), agent_cmd):
         print(f"   Waiting 5 seconds for {agent_cmd} to initialize...")
         time.sleep(5)
-        
+
         # Unblock any initial trust prompts (like Claude)
         state_file = STATE_DIR / f"{full_agent_id}_meta.json"
         if state_file.exists():
@@ -44,7 +44,9 @@ def run_full_integration_tests(agent_cmd="gemini"):
                 with open(state_file) as f:
                     meta = json.load(f)
                 if meta.get("status") == "BLOCKED":
-                    print("   (Agent is BLOCKED on startup, injecting 'y' to trust folder)")
+                    print(
+                        "   (Agent is BLOCKED on startup, injecting 'y' to trust folder)"
+                    )
                     inject_text_to_agent(full_agent_id, "y")
                     time.sleep(3)
             except Exception:
@@ -402,11 +404,11 @@ def test_pkood(args):
         if gemini_path:
             integration_passed = run_full_integration_tests("gemini")
             all_passed = all_passed and integration_passed
-        
+
         if claude_path:
             integration_passed = run_full_integration_tests("claude")
             all_passed = all_passed and integration_passed
-            
+
         if not gemini_path and not claude_path:
             print("\n[!] No supported agents found to run full integration tests.")
             all_passed = False

@@ -111,8 +111,19 @@ def get_all_tails(include_summarizer=False):
         except subprocess.CalledProcessError:
             raw_output = "No output available."
 
+        # Get total lines from the log file
+        total_lines = 0
+        log_path = LOGS_DIR / f"{agent_id}.log"
+        if log_path.exists():
+            try:
+                with open(log_path, "rb") as f:
+                    total_lines = sum(1 for _ in f)
+            except Exception:
+                pass
+
         recent_lines = "\n".join(raw_output.splitlines()[-50:])
-        tails[agent_id] = strip_ansi(recent_lines)
+        clean_text = strip_ansi(recent_lines)
+        tails[agent_id] = f"[Total Lines: {total_lines}]\n{clean_text}"
     return tails
 
 
