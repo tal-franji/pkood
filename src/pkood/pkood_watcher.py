@@ -44,21 +44,23 @@ class PkoodWatcher:
 
         product = get_agent_product(self.agent_type)
 
-        # 1. IDLE: At the main prompt, ready for a new task.
-        if any(
-            ind in line.lower()
-            for line in last_lines[-10:]
-            for ind in product.idle_indicators
-        ):
-            return "IDLE"
-
-        # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
+        # 1. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
+        # Priority 1: If there's an active confirmation prompt, we are definitely BLOCKED.
         if any(
             ind in line.lower()
             for line in last_lines
             for ind in product.blocked_indicators
         ):
             return "BLOCKED"
+
+        # 2. IDLE: At the main prompt, ready for a new task.
+        # Priority 2: If no blocker is seen, check if we are at the main prompt.
+        if any(
+            ind in line.lower()
+            for line in last_lines[-10:]
+            for ind in product.idle_indicators
+        ):
+            return "IDLE"
 
         # 3. RUNNING: Actively thinking, executing tools, or streaming output.
         return "RUNNING"
