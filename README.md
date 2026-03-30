@@ -1,5 +1,7 @@
 # Pkood
 
+![Pkood Architecture](pkood_nano.png)
+
 Run tens of agent sessions (Claude-code / Gemini-CLI) in parallel. Monitor them and attach to them when needed. Get notified when they are blocked and await your input.
 
 ## Installation
