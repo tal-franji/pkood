@@ -45,6 +45,18 @@ def create_agent(agent_id, directory, command):
             # Socket is stale
             socket_path.unlink()
 
+    # Determine agent type
+    agent_type = "other"
+    cmd_lower = command.lower()
+    if "gemini" in cmd_lower:
+        agent_type = "gemini"
+    elif "claude" in cmd_lower:
+        agent_type = "claude"
+
+    type_file = STATE_DIR / f"{agent_id}_type.txt"
+    with open(type_file, "w") as f:
+        f.write(agent_type)
+
     # 1. Start detached tmux session
     tmux_base = get_tmux_cmd(agent_id)
     target_dir = str(Path(directory).resolve())
@@ -103,7 +115,7 @@ def kill_agent_by_id(agent_id):
         socket_path.unlink()
 
     # Also clean up state files
-    for suffix in ["_meta.json", "_status.json"]:
+    for suffix in ["_meta.json", "_status.json", "_type.txt"]:
         path = STATE_DIR / f"{agent_id}{suffix}"
         if path.exists():
             path.unlink()
@@ -122,48 +134,70 @@ def inject_text_to_agent(agent_id, text):
     except subprocess.CalledProcessError:
         return False
 
+    agent_type = "other"
+    type_file = STATE_DIR / f"{agent_id}_type.txt"
+    if type_file.exists():
+        agent_type = type_file.read_text().strip()
+
     # Strip trailing newlines to avoid double-enter confusion
     text = text.rstrip("\r\n")
 
     try:
-        # Use a uniquely named buffer to avoid collisions
-        buf_name = f"pkood_{agent_id}_inject"
-        subprocess.run(
-            get_tmux_cmd(agent_id) + ["set-buffer", "-b", buf_name, text],
-            check=True,
-        )
-        # Paste the buffer with -p for bracketed paste
-        subprocess.run(
-            get_tmux_cmd(agent_id)
-            + ["paste-buffer", "-b", buf_name, "-p", "-t", "main"],
-            check=True,
-        )
-
         short_responses = {"y", "n", "yes", "no", "1", "2", "3", "4", "5"}
         if text.strip().lower() in short_responses:
-            # Short answers for Inquirer-style prompts: just send Enter
+            # Short answers for Inquirer-style prompts: do NOT use bracketed paste 
+            # because the Escape sequence in bracketed paste cancels the prompt.
+            # Just send the keys directly.
+            subprocess.run(
+                get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", text],
+                check=True,
+            )
+            # Add a tiny delay to allow Node.js UI frameworks (like Clack or Inquirer) 
+            # to process the character and update their internal selection state.
+            time.sleep(0.1)
             subprocess.run(
                 get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
                 check=True,
             )
         else:
-            # Long prompts for prompt_toolkit: require Escape then Enter
-            time.sleep(0.1)
+            # Use a uniquely named buffer to avoid collisions for multiline text
+            buf_name = f"pkood_{agent_id}_inject"
             subprocess.run(
-                get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "Escape"],
+                get_tmux_cmd(agent_id) + ["set-buffer", "-b", buf_name, text],
                 check=True,
             )
-            time.sleep(0.2)
+            # Paste the buffer with -p for bracketed paste
             subprocess.run(
-                get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
+                get_tmux_cmd(agent_id)
+                + ["paste-buffer", "-b", buf_name, "-p", "-t", "main"],
                 check=True,
             )
 
-        # Cleanup buffer
-        subprocess.run(
-            get_tmux_cmd(agent_id) + ["delete-buffer", "-b", buf_name],
-            check=False,  # Ignore if it fails
-        )
+            if agent_type == "gemini":
+                # Long prompts for prompt_toolkit: require Escape then Enter
+                time.sleep(0.1)
+                subprocess.run(
+                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "Escape"],
+                    check=True,
+                )
+                time.sleep(0.2)
+                subprocess.run(
+                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
+                    check=True,
+                )
+            else:
+                # Claude Code or generic shell just needs Enter
+                time.sleep(0.1)
+                subprocess.run(
+                    get_tmux_cmd(agent_id) + ["send-keys", "-t", "main", "C-m"],
+                    check=True,
+                )
+
+            # Cleanup buffer
+            subprocess.run(
+                get_tmux_cmd(agent_id) + ["delete-buffer", "-b", buf_name],
+                check=False,  # Ignore if it fails
+            )
         return True
     except subprocess.CalledProcessError:
         return False

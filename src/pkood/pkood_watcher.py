@@ -13,6 +13,11 @@ class PkoodWatcher:
         self.socket = self.base_dir / "sockets" / f"{agent_id}.sock"
         self.state_file = self.base_dir / "state" / f"{agent_id}_meta.json"
 
+        self.agent_type = "other"
+        type_file = self.base_dir / "state" / f"{agent_id}_type.txt"
+        if type_file.exists():
+            self.agent_type = type_file.read_text().strip()
+
         # Ensure directories exist
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -27,23 +32,81 @@ class PkoodWatcher:
             # print(f"DEBUG: Error capturing pane: {e}")
             return None
 
-    def detect_blockers(self, content):
-        """Identifies if the agent is waiting for user input."""
+    def determine_status(self, content):
+        """Categorizes the agent's current state based on terminal content."""
         if not content:
-            return False
+            return "RUNNING"
+
         last_lines = content.strip().splitlines()[-30:]
-        indicators = [
-            "(y/n)",
-            "confirm?",
-            "password:",
-            "[y/n]",
-            "approval",
-            "action required",
-            "allow execution",
-            "allow this tool",
-            "loop detection",
-        ]
-        return any(ind in line.lower() for line in last_lines for ind in indicators)
+
+        if self.agent_type == "gemini":
+            # 1. IDLE: At the main prompt, ready for a new task.
+            # The string "type your message" only appears when the main input box is focused and empty.
+            idle_indicators = ["type your message"]
+            if any(
+                ind in line.lower()
+                for line in last_lines[-10:]
+                for ind in idle_indicators
+            ):
+                return "IDLE"
+
+            # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
+            indicators = [
+                "(y/n)",
+                "confirm?",
+                "password:",
+                "[y/n]",
+                "approval",
+                "action required",
+                "allow execution",
+                "allow this tool",
+                "allow all server tools",
+                "loop detection",
+            ]
+            if any(ind in line.lower() for line in last_lines for ind in indicators):
+                return "BLOCKED"
+
+        elif self.agent_type == "claude":
+            # 1. IDLE: At the main prompt, ready for a new task.
+            # Claude usually has a persistent Ctrl+C hint when at the prompt
+            idle_indicators = ["(ctrl+c to exit)", "? for shortcuts"]
+            if any(
+                ind in line.lower()
+                for line in last_lines[-10:]
+                for ind in idle_indicators
+            ):
+                return "IDLE"
+
+            # 2. BLOCKED: Mid-task, waiting for specific user approval/confirmation.
+            indicators = [
+                "(y/n)",
+                "confirm?",
+                "password:",
+                "[y/n]",
+                "approve?",
+                "press enter to confirm",
+                "do you want to proceed?",
+                "trust?",
+                "trust this",
+            ]
+            if any(ind in line.lower() for line in last_lines for ind in indicators):
+                return "BLOCKED"
+
+        else:
+            # Generic fallback
+            idle_indicators = ["> ", "$ "]
+            if any(
+                ind in line.lower()
+                for line in last_lines[-5:]
+                for ind in idle_indicators
+            ):
+                return "IDLE"
+            indicators = ["(y/n)", "confirm?", "password:", "[y/n]", "approval"]
+            if any(ind in line.lower() for line in last_lines for ind in indicators):
+                return "BLOCKED"
+
+        # 3. RUNNING: Actively thinking, executing tools, or streaming output.
+        return "RUNNING"
 
     def update_state(self):
         content = self.capture_pane()
@@ -51,15 +114,15 @@ class PkoodWatcher:
             # print("DEBUG: No content, exiting.")
             sys.exit(0)
 
-        is_blocked = self.detect_blockers(content)
+        status = self.determine_status(content)
         lines = content.splitlines()
         last_line = lines[-1] if lines else ""
 
         metadata = {
             "agent_id": self.agent_id,
             "timestamp": time.time(),
-            "status": "BLOCKED" if is_blocked else "RUNNING",
-            "is_stuck": is_blocked,
+            "status": status,
+            "is_stuck": (status == "BLOCKED"),
             "last_output_snippet": last_line,
         }
 

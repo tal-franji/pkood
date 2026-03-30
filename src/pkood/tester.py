@@ -21,21 +21,34 @@ from pkood.common import (
 )
 
 
-def run_full_integration_tests():
+def run_full_integration_tests(agent_cmd="gemini"):
     """Runs end-to-end integration tests involving agent creation, text injection, and skills."""
-    print("\n--- Full Integration Tests ---")
+    print(f"\n--- Full Integration Tests ({agent_cmd}) ---")
     all_passed = True
-    full_agent_id = "pk_full_test_agent"
-    sub_agent_id = "pk_sub_agent_test"
+    full_agent_id = f"pk_full_test_{agent_cmd}"
+    sub_agent_id = f"pk_sub_test_{agent_cmd}"
 
     # Cleanup any previous run artifacts
     kill_agent_by_id(full_agent_id)
     kill_agent_by_id(sub_agent_id)
 
-    print(f"Starting test agent '{full_agent_id}' with Gemini CLI...")
-    if create_agent(full_agent_id, str(Path.cwd()), "gemini"):
-        print("   Waiting 5 seconds for Gemini CLI to initialize...")
+    print(f"Starting test agent '{full_agent_id}' with {agent_cmd}...")
+    if create_agent(full_agent_id, str(Path.cwd()), agent_cmd):
+        print(f"   Waiting 5 seconds for {agent_cmd} to initialize...")
         time.sleep(5)
+        
+        # Unblock any initial trust prompts (like Claude)
+        state_file = STATE_DIR / f"{full_agent_id}_meta.json"
+        if state_file.exists():
+            try:
+                with open(state_file) as f:
+                    meta = json.load(f)
+                if meta.get("status") == "BLOCKED":
+                    print("   (Agent is BLOCKED on startup, injecting 'y' to trust folder)")
+                    inject_text_to_agent(full_agent_id, "y")
+                    time.sleep(3)
+            except Exception:
+                pass
 
         print("   Testing text injection (simple echo)...")
         inject_text_to_agent(full_agent_id, "run bash -c 'echo PK_MAGIC_INJECT'")
@@ -58,12 +71,37 @@ def run_full_integration_tests():
 
         print("   Testing /pkood:status skill...")
         inject_text_to_agent(full_agent_id, "/pkood:status")
-        print("   Waiting 15 seconds for skill execution...")
-        time.sleep(15)
 
-        print("   (Injecting '2' to approve MCP tool execution for session...)")
-        inject_text_to_agent(full_agent_id, "2")
-        time.sleep(10)
+        # Wait until it is either blocked (needs approval) or idle
+        print("   Waiting for agent to process status command...")
+        for _ in range(15):
+            time.sleep(2)
+            state_file = STATE_DIR / f"{full_agent_id}_meta.json"
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        meta = json.load(f)
+                    status = meta.get("status")
+                    if status == "BLOCKED":
+                        print(
+                            "   (Injecting '2' to approve MCP tool execution for session...)"
+                        )
+                        inject_text_to_agent(full_agent_id, "2")
+                        time.sleep(5)
+                    elif status == "IDLE":
+                        # Double check we have the STATUS table
+                        log_content = (
+                            log_path.read_text(errors="ignore")
+                            if log_path.exists()
+                            else ""
+                        )
+                        if (
+                            full_agent_id in log_content
+                            and "STATUS" in log_content.upper()
+                        ):
+                            break
+                except Exception:
+                    pass
 
         log_content = log_path.read_text(errors="ignore") if log_path.exists() else ""
         if full_agent_id in log_content and "STATUS" in log_content.upper():
@@ -89,11 +127,14 @@ def run_full_integration_tests():
                 try:
                     with open(state_file) as f:
                         meta = json.load(f)
-                    if meta.get("status") == "BLOCKED":
+                    status = meta.get("status")
+                    if status == "BLOCKED":
                         print(
                             "   (Agent is BLOCKED, injecting '2' to allow tool for session)"
                         )
                         inject_text_to_agent(full_agent_id, "2")
+                    elif status == "IDLE":
+                        print("   (Agent is IDLE)")
                 except Exception:
                     pass
 
@@ -106,6 +147,28 @@ def run_full_integration_tests():
                 print("   --- Tail of failed agent log ---")
                 lines = log_path.read_text(errors="ignore").splitlines()[-20:]
                 print("\n".join(lines))
+            all_passed = False
+
+        # Verify the agent returned to IDLE state
+        print("   Verifying main agent returns to IDLE state...")
+        is_idle = False
+        for _ in range(5):
+            state_file = STATE_DIR / f"{full_agent_id}_meta.json"
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        meta = json.load(f)
+                    if meta.get("status") == "IDLE":
+                        is_idle = True
+                        break
+                except Exception:
+                    pass
+            time.sleep(2)
+
+        if is_idle:
+            print("   [OK] Main agent is IDLE.")
+        else:
+            print("   [!] Main agent did not return to IDLE state.")
             all_passed = False
 
         print("   Cleaning up full test agent and sub-agent...")
@@ -336,8 +399,17 @@ def test_pkood(args):
         all_passed = False
 
     if getattr(args, "full", False) and all_passed:
-        integration_passed = run_full_integration_tests()
-        all_passed = all_passed and integration_passed
+        if gemini_path:
+            integration_passed = run_full_integration_tests("gemini")
+            all_passed = all_passed and integration_passed
+        
+        if claude_path:
+            integration_passed = run_full_integration_tests("claude")
+            all_passed = all_passed and integration_passed
+            
+        if not gemini_path and not claude_path:
+            print("\n[!] No supported agents found to run full integration tests.")
+            all_passed = False
 
     print("\n" + "=" * 30)
     if all_passed:
