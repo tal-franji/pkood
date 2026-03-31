@@ -40,7 +40,10 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   ```bash
   pkood start --dir ./my-project --cmd claude
   ```
-  *Note: The session name defaults to the directory name if `--name` is omitted. If `--cmd` is omitted, Pkood will try to auto-detect installed agents or fall back to your standard shell.*
+  *Options:*
+  * `--cmd <agent>`: Specify the CLI command to launch (e.g., 'gemini', 'claude'). If omitted, Pkood will auto-detect or fall back to your shell.
+  * `--name <name>`: Custom session name (defaults to directory name).
+  * `--fg`: Foreground - Runs the agent natively in your current terminal (without Tmux). Pkood will still track its logs and status, but you cannot remotely attach/inject into it.
 
 - **Spawn a background agent**:
   Runs a specific command in a managed background session.
@@ -96,6 +99,10 @@ Pkood installs custom slash commands into your AI CLI to make fleet management s
 *   **View Fleet Status:** Show all active agents, their status, and an intelligent summary of what they are doing.
     ```bash
     /pkood:status
+    ```
+*   **Review and Unblock:** Triage all currently blocked agents in a single step, presenting a numbered list of pending actions for batch approval.
+    ```bash
+    /pkood:review
     ```
 *   **Spawn a Sub-Agent:** Instruct your current agent to act as a Fleet Manager, parse your request, and spawn a new background agent to handle the task autonomously.
     ```bash

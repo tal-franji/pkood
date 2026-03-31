@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
+from typing import Optional
+
 if __name__ == "__main__":
     # Add the parent directory to sys.path to allow importing pkood
     sys.path.append(str(Path(__file__).parent.parent))
@@ -47,7 +49,7 @@ if __name__ == "__main__":
             return f"Failed to spawn agent '{name}'."
 
     @mcp.tool()
-    def tail_agents(name: str = None):
+    def tail_agents(name: Optional[str] = None):
         """
         Get the last 50 lines of logs from active agents.
 

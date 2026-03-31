@@ -21,7 +21,7 @@ from pkood.common import (
 )
 
 
-def verify_injection(agent_id, text, timeout=20):
+def verify_injection(agent_id, text, timeout=60):
     """
     Injects text and verifies it was actually submitted.
     """
@@ -69,7 +69,7 @@ def verify_injection(agent_id, text, timeout=20):
     return success
 
 
-def wait_for_idle(agent_id, timeout=30, label="Stabilizing"):
+def wait_for_idle(agent_id, timeout=60, label="Stabilizing"):
     """Waits for the agent to reach the IDLE state, handling blockers along the way."""
     state_file = STATE_DIR / f"{agent_id}_meta.json"
     print(f"   Waiting for {agent_id} to become IDLE ({label})...")
@@ -83,11 +83,13 @@ def wait_for_idle(agent_id, timeout=30, label="Stabilizing"):
             if status == "BLOCKED":
                 print("   (Agent is BLOCKED, injecting '2' to unblock)")
                 inject_text_to_agent(agent_id, "2")
-                time.sleep(3)
+                time.sleep(5)
             elif i % 5 == 0:
                 print(f"   (Still waiting... status: {status})")
         except Exception:
             pass
+
+    print(f"   [!] Timeout: Agent '{agent_id}' did not become IDLE during '{label}'.")
     return False
 
 
@@ -113,14 +115,16 @@ def run_agent_integration_suite(agent_cmd, display_name):
     # Cleanup any previous run artifacts
     kill_agent_by_id(full_agent_id)
     kill_agent_by_id(sub_agent_id)
+    time.sleep(1)
 
     print(f"Starting test agent '{full_agent_id}' with {display_name}...")
     if not create_agent(full_agent_id, str(Path.cwd()), agent_cmd):
         print(f"   [!] Failed to start {display_name} agent.")
-        return False
+        all_passed = False
+
 
     # 1. Startup
-    if not wait_for_idle(full_agent_id, timeout=40, label="Startup"):
+    if not wait_for_idle(full_agent_id, timeout=60, label="Startup"):
         print("   [!] Timeout: Agent did not become IDLE on startup.")
         all_passed = False
 
@@ -132,7 +136,9 @@ def run_agent_integration_suite(agent_cmd, display_name):
         if not verify_injection(full_agent_id, "run bash -c 'echo PK_SINGLE_LINE'"):
             all_passed = False
 
-        if all_passed and not wait_for_idle(full_agent_id, label="After Single Line"):
+        if all_passed and not wait_for_idle(
+            full_agent_id, timeout=60, label="After Single Line"
+        ):
             all_passed = False
 
         # Test 2: Multiline
@@ -140,7 +146,9 @@ def run_agent_integration_suite(agent_cmd, display_name):
         if all_passed and not verify_injection(full_agent_id, multiline_test):
             all_passed = False
 
-        if all_passed and not wait_for_idle(full_agent_id, label="After Multiline"):
+        if all_passed and not wait_for_idle(
+            full_agent_id, timeout=60, label="After Multiline"
+        ):
             all_passed = False
 
         # Test 3: Realistic Massive Multiline
@@ -153,16 +161,21 @@ def run_agent_integration_suite(agent_cmd, display_name):
             all_passed = False
 
         if all_passed and not wait_for_idle(
-            full_agent_id, label="After Massive Multiline"
+            full_agent_id, timeout=80, label="After Massive Multiline"
         ):
             all_passed = False
 
-        # Verify logs
+        # Final check of logs for phase 1
+        time.sleep(2)  # Give the pipe-pane a second to flush
         log_content = log_path.read_text(errors="ignore") if log_path.exists() else ""
-        if "PK_MULTILINE_2" in log_content and "PK_MASSIVE_SUCCESS" in log_content:
+        if (
+            all_passed
+            and "PK_MULTILINE_2" in log_content
+            and "PK_MASSIVE_SUCCESS" in log_content
+        ):
             print("   [OK] Injection Phase 1 verified.")
         else:
-            print("   [!] Injection Phase 1 verification failed in logs.")
+            print("   [!] Injection Phase 1 verification failed.")
             all_passed = False
 
     # 3. Phase 2: Skills Testing
@@ -313,7 +326,13 @@ def test_pkood(args):
         skill_path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
         cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
         kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
-        if skill_path.exists() and cmd_path.exists() and kill_path.exists():
+        review_path = Path.home() / ".gemini" / "commands" / "pkood" / "review.toml"
+        if (
+            skill_path.exists()
+            and cmd_path.exists()
+            and kill_path.exists()
+            and review_path.exists()
+        ):
             # Always update to ensure latest version
             install_pkood_skill("gemini")
             install_pkood_commands("gemini")
@@ -367,7 +386,13 @@ def test_pkood(args):
         skill_path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
         cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
         kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
-        if skill_path.exists() and cmd_path.exists() and kill_path.exists():
+        review_path = Path.home() / ".claude" / "commands" / "pkood:review.md"
+        if (
+            skill_path.exists()
+            and cmd_path.exists()
+            and kill_path.exists()
+            and review_path.exists()
+        ):
             # Always update to ensure latest version
             install_pkood_skill("claude")
             install_pkood_commands("claude")

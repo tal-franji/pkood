@@ -14,9 +14,14 @@ class PkoodWatcher:
         self.state_file = self.base_dir / "state" / f"{agent_id}_meta.json"
 
         self.agent_type = "other"
-        type_file = self.base_dir / "state" / f"{agent_id}_type.txt"
-        if type_file.exists():
-            self.agent_type = type_file.read_text().strip()
+        self.static_meta = {}
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, "r") as f:
+                    self.static_meta = json.load(f)
+                    self.agent_type = self.static_meta.get("type", "other")
+            except Exception:
+                pass
 
         # Ensure directories exist
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -77,28 +82,33 @@ class PkoodWatcher:
         current_time = time.time()
 
         update_ts = current_time
+        meta = self.static_meta.copy()
+
         if self.state_file.exists():
             try:
                 with open(self.state_file, "r") as f:
                     old_meta = json.load(f)
+                    meta.update(old_meta)
                     if old_meta.get("status") == status:
                         update_ts = old_meta.get("update_ts", current_time)
             except Exception:
                 pass
 
-        metadata = {
-            "agent_id": self.agent_id,
-            "timestamp": current_time,
-            "status": status,
-            "update_ts": update_ts,
-            "is_stuck": (status == "BLOCKED"),
-            "last_output_snippet": last_line,
-        }
+        meta.update(
+            {
+                "agent_id": self.agent_id,
+                "timestamp": current_time,
+                "status": status,
+                "update_ts": update_ts,
+                "is_stuck": (status == "BLOCKED"),
+                "last_output_snippet": last_line,
+            }
+        )
 
         # Use a temporary file and rename for atomicity
         temp_file = self.state_file.with_suffix(".tmp")
         with open(temp_file, "w") as f:
-            json.dump(metadata, f, indent=2)
+            json.dump(meta, f, indent=2)
         os.replace(temp_file, self.state_file)
         # print(f"DEBUG: Updated {self.state_file}")
 

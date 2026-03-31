@@ -1,3 +1,4 @@
+from typing import Any, Union
 import argparse
 import subprocess
 import os
@@ -23,58 +24,93 @@ from pkood.common import (
 from pkood.tester import test_pkood
 
 
-def get_agents_status():
+def get_json_properly(
+    filename: Union[str, Path], names: Union[str, list[str]], default=None
+) -> Any:
+    result = default
+    if isinstance(names, str):
+        names = [names]
+    filename_path = Path(filename)
+    if filename_path.exists():
+        try:
+            with open(filename_path, "r") as f:
+                jobj = json.load(f)
+                for name in names:
+                    if name in jobj:
+                        result = jobj[name]
+                        break
+        except Exception:
+            pass
+    return result
+
+
+def get_agents_status(hide_old_exited=True):
     """Returns structured metadata for all agents."""
     ensure_dirs()
-    sockets = list(SOCKETS_DIR.glob("*.sock"))
-    results = []
 
-    for sock in sockets:
-        agent_id = sock.stem
+    # Gather all agent IDs from state files or sockets
+    agent_ids = set()
+    for p in STATE_DIR.glob("*_meta.json"):
+        agent_ids.add(p.name.replace("_meta.json", ""))
+    for p in SOCKETS_DIR.glob("*.sock"):
+        agent_ids.add(p.stem)
+
+    results = []
+    current_time = time.time()
+
+    for agent_id in agent_ids:
         log_path = LOGS_DIR / f"{agent_id}.log"
         meta_path = STATE_DIR / f"{agent_id}_meta.json"
         status_path = STATE_DIR / f"{agent_id}_status.json"
+
+        # 1. Get Mechanical Status (from watcher)
+        status = get_json_properly(meta_path, "status", "UNKNOWN")
+        is_foreground = get_json_properly(meta_path, "mode", "") == "foreground"
 
         log_size = (
             f"{log_path.stat().st_size / 1024:.1f}K" if log_path.exists() else "0K"
         )
 
-        # 1. Get Mechanical Status (from watcher)
-        status = "UNKNOWN"
-        if meta_path.exists():
+        if is_foreground:
+            pid = get_json_properly(meta_path, "pid")
+            if pid:
+                try:
+                    os.kill(int(pid), 0)
+                    status = "FOREGROUND"
+                except (ProcessLookupError, ValueError):
+                    status = "EXITED"
+            else:
+                if status != "EXITED":
+                    status = "EXITED"
+        else:
+            # Cross-check with tmux
             try:
-                with open(meta_path, "r") as f:
-                    meta = json.load(f)
-                    status = meta.get("status", "UNKNOWN")
-            except Exception:
-                pass
+                # We use `tmux ls` (list-sessions) against the specific socket file
+                # to definitively check if the tmux server is still alive and listening.
+                subprocess.run(
+                    get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
+                )
+                if status == "UNKNOWN":
+                    status = "RUNNING"
+            except subprocess.CalledProcessError:
+                status = "EXITED"
 
-        # Cross-check with tmux
-        try:
-            subprocess.run(
-                get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
-            )
-            if status == "UNKNOWN":
-                status = "RUNNING"
-        except subprocess.CalledProcessError:
-            status = "EXITED"
+        # Filter out old EXITED agents
+        if hide_old_exited and status == "EXITED":
+            # For foreground agents, use meta_path mtime since they don't have logs
+            check_path = log_path if log_path.exists() else meta_path
+            last_modified = check_path.stat().st_mtime if check_path.exists() else 0
+            if (current_time - last_modified) > 3600:
+                continue
 
         # 2. Get Semantic Focus (from agent)
-        focus = ""
-        if status_path.exists():
-            try:
-                with open(status_path, "r") as f:
-                    status_data = json.load(f)
-                    focus = status_data.get("current_focus", "") or status_data.get(
-                        "status_message", ""
-                    )
-            except Exception:
-                pass
+        focus = get_json_properly(status_path, ["current_focus", "status_message"], "")
 
         results.append(
             {
                 "agent_id": agent_id,
                 "status": status,
+                "mode": get_json_properly(meta_path, "mode", "tmux"),
                 "log_size": log_size,
                 "focus": focus,
             }
@@ -85,33 +121,24 @@ def get_agents_status():
 def get_all_tails(include_summarizer=False, filter_id=None):
     """Returns a dictionary of agent IDs and their cleaned tail output."""
     ensure_dirs()
-    sockets = list(SOCKETS_DIR.glob("*.sock"))
+
+    # Gather all agent IDs
+    agent_ids = set()
+    for p in STATE_DIR.glob("*_meta.json"):
+        agent_ids.add(p.name.replace("_meta.json", ""))
+    for p in SOCKETS_DIR.glob("*.sock"):
+        agent_ids.add(p.stem)
+
     tails = {}
 
-    for sock in sockets:
-        agent_id = sock.stem
+    for agent_id in agent_ids:
         if filter_id and agent_id != filter_id:
             continue
         if not include_summarizer and agent_id == "pkood-summarizer":
             continue
 
-        # Check if alive
-        try:
-            subprocess.run(
-                get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
-            )
-        except subprocess.CalledProcessError:
-            continue  # Skip dead agents
-
-        # Capture Pane
-        try:
-            capture_cmd = get_tmux_cmd(agent_id) + ["capture-pane", "-p", "-t", "main"]
-            result = subprocess.run(
-                capture_cmd, capture_output=True, text=True, check=True
-            )
-            raw_output = result.stdout
-        except subprocess.CalledProcessError:
-            raw_output = "No output available."
+        meta_path = STATE_DIR / f"{agent_id}_meta.json"
+        is_foreground = get_json_properly(meta_path, "mode", "") == "foreground"
 
         # Get total lines from the log file
         total_lines = 0
@@ -122,6 +149,43 @@ def get_all_tails(include_summarizer=False, filter_id=None):
                     total_lines = sum(1 for _ in f)
             except Exception:
                 pass
+
+        if is_foreground:
+            # Foreground agents have no tmux pane, so we just read the raw log file tail directly
+            if log_path.exists():
+                try:
+                    with open(log_path, "r", errors="ignore") as f:
+                        lines = f.readlines()
+                        raw_output = "".join(lines[-50:])
+                except Exception:
+                    raw_output = "Error reading log."
+            else:
+                raw_output = "No output available."
+        else:
+            # Check if alive
+            try:
+                # We use `tmux ls` (list-sessions) against the specific socket file
+                # to definitively check if the tmux server is still alive and listening.
+                subprocess.run(
+                    get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
+                )
+            except subprocess.CalledProcessError:
+                continue  # Skip dead agents
+
+            # Capture Pane
+            try:
+                capture_cmd = get_tmux_cmd(agent_id) + [
+                    "capture-pane",
+                    "-p",
+                    "-t",
+                    "main",
+                ]
+                result = subprocess.run(
+                    capture_cmd, capture_output=True, text=True, check=True
+                )
+                raw_output = result.stdout
+            except subprocess.CalledProcessError:
+                raw_output = "No output available."
 
         recent_lines = "\n".join(raw_output.splitlines()[-50:])
         clean_text = strip_ansi(recent_lines)
@@ -182,18 +246,24 @@ def start(args):
             launch_cmd = os.environ.get("SHELL", "bash")
             print(f"No agents detected. Defaulting to shell: {launch_cmd}")
 
-    if create_agent(agent_id, args.dir, launch_cmd):
-        print(f"Starting interactive session for '{agent_id}'...")
-        # Give a tiny bit of time for tmux to initialize before attaching
-        time.sleep(0.1)
-        socket_path = SOCKETS_DIR / f"{agent_id}.sock"
-        os.execvp("tmux", ["tmux", "-S", str(socket_path), "attach", "-t", "main"])
+    is_foreground = getattr(args, "foreground", False)
+    if create_agent(agent_id, args.dir, launch_cmd, foreground=is_foreground):
+        if not is_foreground:
+            print(f"Starting interactive session for '{agent_id}'...")
+            # Give a tiny bit of time for tmux to initialize before attaching
+            time.sleep(0.1)
+            socket_path = SOCKETS_DIR / f"{agent_id}.sock"
+            os.execvp("tmux", ["tmux", "-S", str(socket_path), "attach", "-t", "main"])
 
 
 def list_agents(args):
-    agents = get_agents_status()
+    hide_old_exited = not getattr(args, "all", False)
+    agents = get_agents_status(hide_old_exited=hide_old_exited)
     if not agents:
-        print("No active agents found.")
+        if hide_old_exited:
+            print("No active or recently exited agents found (use --all to show all).")
+        else:
+            print("No agents found.")
         return
 
     print(f"{'AGENT ID':<20} | {'STATUS':<10} | {'LOG'}")
@@ -204,6 +274,14 @@ def list_agents(args):
 
 def attach(args):
     agent_id = args.name
+
+    meta_path = STATE_DIR / f"{agent_id}_meta.json"
+    is_foreground = get_json_properly(meta_path, "mode", "") == "foreground"
+
+    if is_foreground:
+        print(f"Cannot attach to a foreground agent ('{agent_id}').")
+        return
+
     socket_path = SOCKETS_DIR / f"{agent_id}.sock"
 
     if not socket_path.exists():
@@ -310,9 +388,22 @@ def main():
         help="Specific CLI command to launch (e.g., 'gemini', 'claude'). "
         "If omitted, auto-detects or falls back to shell.",
     )
-
+    start_parser.add_argument(
+        "--foreground",
+        "--fg",
+        action="store_true",
+        help="Run the agent directly in the foreground (no tmux). Attach/detach/inject will be disabled.",
+    )
     # List
-    subparsers.add_parser("list", aliases=["ls", "ps"], help="List all running agents")
+    list_parser = subparsers.add_parser(
+        "list", aliases=["ls", "ps"], help="List all running agents"
+    )
+    list_parser.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help="Show all agents, including old EXITED ones",
+    )
 
     # Tail
     tail_parser = subparsers.add_parser(

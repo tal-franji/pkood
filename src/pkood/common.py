@@ -1,8 +1,10 @@
 import subprocess
+import os
 import sys
 import time
 import json
 import re
+import platform
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".pkood"
@@ -42,23 +44,40 @@ def get_agent_product(agent_type):
     return GenericAgentProduct()
 
 
-def create_agent(agent_id, directory, command):
+def create_agent(agent_id, directory, command, foreground=False):
     ensure_dirs()
 
     socket_path = SOCKETS_DIR / f"{agent_id}.sock"
     log_path = LOGS_DIR / f"{agent_id}.log"
+    meta_path = STATE_DIR / f"{agent_id}_meta.json"
 
+    # Check if it's actually alive
+    is_alive = False
     if socket_path.exists():
-        # Check if it's actually alive
         try:
+            # We use `tmux ls` (list-sessions) against the specific socket file
+            # to definitively check if the tmux server is still alive and listening.
             subprocess.run(
                 get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
             )
-            print(f"Error: Agent '{agent_id}' is already running.")
-            return False
+            is_alive = True
         except subprocess.CalledProcessError:
-            # Socket is stale
             socket_path.unlink()
+    elif meta_path.exists():
+        try:
+            with open(meta_path, "r") as f:
+                old_meta = json.load(f)
+            if old_meta.get("mode") == "foreground" and old_meta.get("pid"):
+                os.kill(int(old_meta["pid"]), 0)
+                is_alive = True
+        except (ProcessLookupError, ValueError, Exception):
+            pass  # Stale meta or process dead
+
+    if is_alive:
+        print(
+            f"Error: Agent '{agent_id}' is already running. Use --name to specify a different name."
+        )
+        return False
 
     # Determine agent type
     agent_type = "other"
@@ -68,91 +87,167 @@ def create_agent(agent_id, directory, command):
     elif "claude" in cmd_lower:
         agent_type = "claude"
 
-    type_file = STATE_DIR / f"{agent_id}_type.txt"
-    with open(type_file, "w") as f:
-        f.write(agent_type)
-
-    # 1. Start detached tmux session
-    tmux_base = get_tmux_cmd(agent_id)
     target_dir = str(Path(directory).resolve())
+    env = os.environ.copy()
+    env["PKOOD_AGENT_ID"] = agent_id
+    env["GEMINI_SECURITY_FOLDER_TRUST_ENABLED"] = "false"
 
-    # We explicitly set PKOOD_AGENT_ID so the child process knows who it is.
-    # We also disable Gemini CLI folder trust for Pkood agents so MCP tools work immediately.
-    try:
-        subprocess.run(
-            tmux_base
-            + [
-                "new-session",
-                "-d",
-                "-s",
-                "main",
-                "-c",
-                target_dir,
-                "-e",
-                f"PKOOD_AGENT_ID={agent_id}",
-                "-e",
-                "GEMINI_SECURITY_FOLDER_TRUST_ENABLED=false",
-                command,
-            ],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error starting tmux session: {e}")
-        return False
+    if foreground:
+        try:
+            # Determine platform to use the right `script` command flags
+            if platform.system() == "Darwin":
+                # macOS script command: -q for quiet, -t 0 to flush immediately
+                script_cmd = [
+                    "script",
+                    "-q",
+                    "-t",
+                    "0",
+                    str(log_path),
+                    "bash",
+                    "-c",
+                    command,
+                ]
+            else:
+                # Linux script command: -q for quiet, -c for command, -f for flush
+                script_cmd = ["script", "-q", "-c", command, "-f", str(log_path)]
 
-    # 2. Setup pipe-pane for continuous logging
-    pipe_cmd = f"cat >> {log_path}"
-    subprocess.run(tmux_base + ["pipe-pane", "-t", "main", pipe_cmd], check=True)
+            proc = subprocess.Popen(script_cmd, cwd=target_dir, env=env)
 
-    # 3. Start the watcher in the background
-    watcher_script = Path(__file__).parent / "pkood_watcher.py"
-    watcher_log = LOGS_DIR / f"{agent_id}_watcher.log"
-    if watcher_script.exists():
-        with open(watcher_log, "w") as wl:
-            subprocess.Popen(
-                [sys.executable, str(watcher_script), agent_id],
-                stdout=wl,
-                stderr=wl,
-                start_new_session=True,
+            # 1. Start blocking foreground process
+            meta = {
+                "agent_id": agent_id,
+                "type": agent_type,
+                "mode": "foreground",
+                "pid": proc.pid,
+                "timestamp": time.time(),
+                "status": "FOREGROUND",
+                "update_ts": time.time(),
+                "is_stuck": False,
+                "last_output_snippet": "Running in foreground terminal (logs captured via script).",
+            }
+            with open(meta_path, "w") as f:
+                json.dump(meta, f)
+
+            proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            kill_agent_by_id(agent_id)
+        return True
+    else:
+        # Write initial meta for tmux process
+        meta = {
+            "agent_id": agent_id,
+            "type": agent_type,
+            "mode": "tmux",
+            "pid": None,
+            "timestamp": time.time(),
+            "status": "STARTING",
+            "update_ts": time.time(),
+            "is_stuck": False,
+            "last_output_snippet": "",
+        }
+        with open(meta_path, "w") as f:
+            json.dump(meta, f)
+
+        # 1. Start detached tmux session
+        tmux_base = get_tmux_cmd(agent_id)
+        try:
+            subprocess.run(
+                tmux_base
+                + [
+                    "new-session",
+                    "-d",
+                    "-s",
+                    "main",
+                    "-c",
+                    target_dir,
+                    "-e",
+                    f"PKOOD_AGENT_ID={agent_id}",
+                    "-e",
+                    "GEMINI_SECURITY_FOLDER_TRUST_ENABLED=false",
+                    command,
+                ],
+                check=True,
             )
-    return True
+        except subprocess.CalledProcessError as e:
+            print(f"Error starting tmux session: {e}")
+            return False
+
+        # 2. Setup pipe-pane for continuous logging
+        pipe_cmd = f"cat >> {log_path}"
+        subprocess.run(tmux_base + ["pipe-pane", "-t", "main", pipe_cmd], check=True)
+
+        # 3. Start the watcher in the background
+        watcher_script = Path(__file__).parent / "pkood_watcher.py"
+        watcher_log = LOGS_DIR / f"{agent_id}_watcher.log"
+        if watcher_script.exists():
+            with open(watcher_log, "w") as wl:
+                subprocess.Popen(
+                    [sys.executable, str(watcher_script), agent_id],
+                    stdout=wl,
+                    stderr=wl,
+                    start_new_session=True,
+                )
+        return True
 
 
 def kill_agent_by_id(agent_id):
     """Kills an agent by its ID and cleans up state files."""
-    socket_path = SOCKETS_DIR / f"{agent_id}.sock"
+    mode_file = STATE_DIR / f"{agent_id}_mode.txt"
+    is_foreground = mode_file.exists() and mode_file.read_text().strip() == "foreground"
 
-    if not socket_path.exists():
-        return False
+    if is_foreground:
+        pid_file = STATE_DIR / f"{agent_id}_pid.txt"
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text().strip())
+                import signal
 
-    subprocess.run(get_tmux_cmd(agent_id) + ["kill-server"])
-    if socket_path.exists():
-        socket_path.unlink()
+                os.kill(pid, signal.SIGTERM)
+            except (ProcessLookupError, ValueError):
+                pass
+    else:
+        socket_path = SOCKETS_DIR / f"{agent_id}.sock"
+        if socket_path.exists():
+            subprocess.run(get_tmux_cmd(agent_id) + ["kill-server"])
+            socket_path.unlink(missing_ok=True)
 
-    # Also clean up state files
-    for suffix in ["_meta.json", "_status.json", "_type.txt"]:
+    # Clean up all state files
+    for suffix in ["_meta.json", "_status.json", "_type.txt", "_mode.txt", "_pid.txt"]:
         path = STATE_DIR / f"{agent_id}{suffix}"
         if path.exists():
-            path.unlink()
+            path.unlink(missing_ok=True)
     return True
 
 
 def inject_text_to_agent(agent_id, text):
     """Sends text input to an active agent's tmux session."""
+    # Read metadata to check mode and type
+    agent_type = "other"
+    meta_path = STATE_DIR / f"{agent_id}_meta.json"
+    if meta_path.exists():
+        try:
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+                if meta.get("mode") == "foreground":
+                    print(f"Cannot inject text into a foreground agent ({agent_id}).")
+                    return False
+                agent_type = meta.get("type", "other")
+        except Exception:
+            pass
+
     socket_path = SOCKETS_DIR / f"{agent_id}.sock"
     if not socket_path.exists():
         return False
 
     # Check if alive
     try:
+        # We use `tmux ls` (list-sessions) against the specific socket file
+        # to definitively check if the tmux server is still alive and listening.
         subprocess.run(get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True)
     except subprocess.CalledProcessError:
         return False
-
-    agent_type = "other"
-    type_file = STATE_DIR / f"{agent_id}_type.txt"
-    if type_file.exists():
-        agent_type = type_file.read_text().strip()
 
     product = get_agent_product(agent_type)
 
@@ -232,7 +327,10 @@ def fix_gemini_config():
     if "mcpServers" not in settings:
         settings["mcpServers"] = {}
 
-    settings["mcpServers"]["pkood"] = {"url": "http://127.0.0.1:8000/sse"}
+    settings["mcpServers"]["pkood"] = {
+        "command": sys.executable,
+        "args": [str(Path(__file__).resolve().parent / "cli.py"), "mcp", "--stdio"],
+    }
 
     # Clean up old/wrong key if it exists from previous versions
     if (
@@ -334,11 +432,18 @@ Instead, you **MUST** use the `pkood` MCP tools.
 
 def install_pkood_commands(agent_type):
     """Installs slash commands for the specified agent type."""
+    from pkood.common import get_agent_product
+
+    product = get_agent_product(agent_type)
+    approve_example = product.approve_example
+
     status_prompt = (
         "Call the pkood:list_agents and pkood:tail_agents MCP tools. "
         "Analyze the output and provide a concise, one-sentence summary of what each active agent is currently doing. "
         "Present the final results in a plain ASCII table with columns: Agent ID, Status, and Summary. "
-        "If an agent is BLOCKED, explicitly explain why in the Summary column."
+        "If an agent is BLOCKED, explicitly explain why in the Summary column. "
+        "IMPORTANT: If an agent has `mode: foreground`, explicitly mention that it is running in the user's active "
+        "terminal and cannot be controlled remotely via MCP."
     )
 
     start_prompt = (
@@ -362,8 +467,8 @@ def install_pkood_commands(agent_type):
         "8. Check `list_agents` and `tail_agents` again after a brief wait to ensure the agent has started "
         "processing the prompt and is not BLOCKED.\n"
         '9. If the agent becomes BLOCKED asking for tool execution approval (e.g., "Allow execution of:", '
-        "\"Action Required\"), use `inject_to_agent` to send the appropriate input (like '1' or '2' for "
-        "allow once/session) to unblock it.\n"
+        f'"Action Required"), use `inject_to_agent` to send the appropriate input (like {approve_example}) '
+        "to unblock it.\n"
         "10. Verify the agent is actively working on the task and no longer BLOCKED, then report back to the "
         "user that the agent is successfully running in the background."
     )
@@ -375,6 +480,21 @@ def install_pkood_commands(agent_type):
         "(you can use `list_agents` to show them the active agents).\n"
         "3. Use the `kill_agent` MCP tool to terminate the specified agent.\n"
         "4. Confirm to the user that the agent has been killed."
+    )
+
+    review_prompt = (
+        "You are acting as a Fleet Manager to triage blocked agents.\n"
+        "1. Call `list_agents` to find all agents with status 'BLOCKED' or those that look stuck in their logs.\n"
+        "2. For each such agent, call `tail_agents(name=agent_id)` to see exactly what tool or command "
+        "it is waiting for approval on.\n"
+        "3. Present a numbered ASCII table to the user with columns: #, Agent ID, Mode, and Pending Action.\n"
+        "4. **CRITICAL**: If an agent has `mode: foreground`, you cannot unblock it. In the Pending Action column, "
+        "write 'Manual Action Required in Terminal'.\n"
+        "5. Ask the user: 'Which background (tmux) agents should I unblock? (Reply with numbers, or \"all\")'.\n"
+        f"6. Once the user provides the numbers, use `inject_to_agent` to send {approve_example} to each "
+        "of the selected background agents.\n"
+        "7. Confirm to the user which background agents have been unblocked and remind them to check any "
+        "foreground agents manually."
     )
 
     try:
@@ -404,6 +524,15 @@ def install_pkood_commands(agent_type):
                     'description = "Kill an active Pkood background agent"\n'
                     f'prompt = """{kill_prompt}"""\n'
                 )
+
+            # Review command
+            review_path = Path.home() / ".gemini" / "commands" / "pkood" / "review.toml"
+            review_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(review_path, "w") as f:
+                f.write(
+                    'description = "Review and unblock multiple agents at once"\n'
+                    f'prompt = """{review_prompt}"""\n'
+                )
         elif agent_type == "claude":
             # Status command
             status_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
@@ -422,6 +551,12 @@ def install_pkood_commands(agent_type):
             kill_path.parent.mkdir(parents=True, exist_ok=True)
             with open(kill_path, "w") as f:
                 f.write(f"# /pkood:kill\n{kill_prompt}\n")
+
+            # Review command
+            review_path = Path.home() / ".claude" / "commands" / "pkood:review.md"
+            review_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(review_path, "w") as f:
+                f.write(f"# /pkood:review\n{review_prompt}\n")
         return True
     except Exception as e:
         print(f"   Error installing commands for {agent_type}: {e}")
