@@ -104,6 +104,10 @@ Pkood installs custom slash commands into your AI CLI to make fleet management s
     ```bash
     /pkood:review
     ```
+*   **Auto Review and Unblock:** Automatically act as a Fleet Manager to triage blocked agents. Approves actions that are not obviously dangerous or large refactoring, and rejects others with feedback.
+    ```bash
+    /pkood:auto
+    ```
 *   **Spawn a Sub-Agent:** Instruct your current agent to act as a Fleet Manager, parse your request, and spawn a new background agent to handle the task autonomously.
     ```bash
     /pkood:start
