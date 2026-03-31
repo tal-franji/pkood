@@ -497,6 +497,19 @@ def install_pkood_commands(agent_type):
         "foreground agents manually."
     )
 
+    auto_prompt = (
+        "You are acting as an Autonomous Fleet Manager to review and automatically unblock agents.\n"
+        "1. Call `list_agents` to find all agents with status 'BLOCKED' or those that look stuck in their logs.\n"
+        "2. For each such agent, call `tail_agents(name=agent_id)` to see exactly what tool or command "
+        "it is waiting for approval on.\n"
+        "3. Evaluate the pending action. Approve anything that is not obviously dangerous or a big design change or refactor.\n"
+        "4. **CRITICAL**: If an agent has `mode: foreground`, you cannot unblock it. Skip it.\n"
+        f"5. For each background agent you decide to approve, use `inject_to_agent` to send {approve_example} to unblock it.\n"
+        "6. If you decide to reject or provide feedback (e.g. because it is dangerous or a large refactor), use "
+        "`inject_to_agent` to send a message explaining your decision.\n"
+        "7. Present a summary of the actions you took (e.g. Approved, Rejected, Skipped) for each blocked agent."
+    )
+
     try:
         if agent_type == "gemini":
             # Status command
@@ -533,6 +546,15 @@ def install_pkood_commands(agent_type):
                     'description = "Review and unblock multiple agents at once"\n'
                     f'prompt = """{review_prompt}"""\n'
                 )
+
+            # Auto command
+            auto_path = Path.home() / ".gemini" / "commands" / "pkood" / "auto.toml"
+            auto_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(auto_path, "w") as f:
+                f.write(
+                    'description = "Automatically review and unblock agents based on safety guidelines"\n'
+                    f'prompt = """{auto_prompt}"""\n'
+                )
         elif agent_type == "claude":
             # Status command
             status_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
@@ -557,6 +579,12 @@ def install_pkood_commands(agent_type):
             review_path.parent.mkdir(parents=True, exist_ok=True)
             with open(review_path, "w") as f:
                 f.write(f"# /pkood:review\n{review_prompt}\n")
+
+            # Auto command
+            auto_path = Path.home() / ".claude" / "commands" / "pkood:auto.md"
+            auto_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(auto_path, "w") as f:
+                f.write(f"# /pkood:auto\n{auto_prompt}\n")
         return True
     except Exception as e:
         print(f"   Error installing commands for {agent_type}: {e}")

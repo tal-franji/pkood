@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import time
 import json
 import platform
@@ -326,11 +327,13 @@ def test_pkood(args):
         cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
         kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
         review_path = Path.home() / ".gemini" / "commands" / "pkood" / "review.toml"
+        auto_path = Path.home() / ".gemini" / "commands" / "pkood" / "auto.toml"
         if (
             skill_path.exists()
             and cmd_path.exists()
             and kill_path.exists()
             and review_path.exists()
+            and auto_path.exists()
         ):
             # Always update to ensure latest version
             install_pkood_skill("gemini")
@@ -386,11 +389,13 @@ def test_pkood(args):
         cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
         kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
         review_path = Path.home() / ".claude" / "commands" / "pkood:review.md"
+        auto_path = Path.home() / ".claude" / "commands" / "pkood:auto.md"
         if (
             skill_path.exists()
             and cmd_path.exists()
             and kill_path.exists()
             and review_path.exists()
+            and auto_path.exists()
         ):
             # Always update to ensure latest version
             install_pkood_skill("claude")
@@ -427,11 +432,14 @@ def test_pkood(args):
     else:
         print("   [!] MCP Service Status: NOT RUNNING")
         if ask_confirmation("       Would you like to start the MCP service now?"):
-            # Use subprocess to call the CLI instead of importing cmd_mcp to avoid circularity
-            # Actually, common.py doesn't have cmd_mcp.
-            # We can use subprocess.run([sys.executable, "-m", "pkood.cli", "mcp"])
-            print("       Please start it using: pkood mcp --stdio")
-            all_passed = False
+            try:
+                subprocess.run([sys.executable, "-m", "pkood.cli", "mcp"], check=True)
+                print("       MCP service started successfully.")
+                mcp_running = True
+            except subprocess.CalledProcessError:
+                print("       [!] Failed to start MCP service automatically.")
+                print("       Please start it using: pkood mcp")
+                all_passed = False
         else:
             print("       Skipping MCP service startup.")
 

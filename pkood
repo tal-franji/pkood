@@ -1,0 +1,3 @@
+#!/bin/bash
+# Local development wrapper for pkood
+python3 "$(dirname "$0")/src/pkood/cli.py" "$@"
