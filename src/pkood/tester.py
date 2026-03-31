@@ -122,7 +122,6 @@ def run_agent_integration_suite(agent_cmd, display_name):
         print(f"   [!] Failed to start {display_name} agent.")
         all_passed = False
 
-
     # 1. Startup
     if not wait_for_idle(full_agent_id, timeout=60, label="Startup"):
         print("   [!] Timeout: Agent did not become IDLE on startup.")
