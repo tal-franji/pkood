@@ -27,6 +27,10 @@ class GeminiAgentProduct(AgentProduct):
     def approve_example(self) -> str:
         return "'2' (allow for session)"
 
+    @property
+    def approve_test_input(self) -> str:
+        return "y"
+
     def perform_long_inject(self, agent_id, text, get_tmux_cmd_func):
         import subprocess
 

@@ -22,6 +22,9 @@ from pkood.common import (
 )
 
 
+from pkood.common import get_agent_product
+
+
 def verify_injection(agent_id, text, timeout=60):
     """
     Injects text and verifies it was actually submitted.
@@ -73,6 +76,7 @@ def verify_injection(agent_id, text, timeout=60):
 def wait_for_idle(agent_id, timeout=60, label="Stabilizing"):
     """Waits for the agent to reach the IDLE state, handling blockers along the way."""
     state_file = STATE_DIR / f"{agent_id}_meta.json"
+    product = get_agent_product(agent_id)
     print(f"   Waiting for {agent_id} to become IDLE ({label})...")
     for i in range(timeout // 2):
         time.sleep(2)
@@ -82,8 +86,11 @@ def wait_for_idle(agent_id, timeout=60, label="Stabilizing"):
             if status == "IDLE":
                 return True
             if status == "BLOCKED":
-                print("   (Agent is BLOCKED, injecting '2' to unblock)")
-                inject_text_to_agent(agent_id, "2")
+                test_input = product.approve_test_input
+                print(f"   (Agent is BLOCKED, injecting '{test_input}' to unblock)")
+                from pkood.common import get_tmux_cmd
+
+                product.unblock_agent(agent_id, get_tmux_cmd)
                 time.sleep(5)
             elif i % 5 == 0:
                 print(f"   (Still waiting... status: {status})")
@@ -94,22 +101,22 @@ def wait_for_idle(agent_id, timeout=60, label="Stabilizing"):
     return False
 
 
-def run_gemini_integration_tests():
+def run_gemini_integration_tests(gemini_path):
     """Runs end-to-end integration tests for Gemini CLI."""
-    return run_agent_integration_suite("gemini", "Gemini")
+    return run_agent_integration_suite(gemini_path, "Gemini", "gemini")
 
 
-def run_claude_integration_tests():
+def run_claude_integration_tests(claude_path):
     """Runs end-to-end integration tests for Claude Code."""
-    return run_agent_integration_suite("claude", "Claude")
+    return run_agent_integration_suite(claude_path, "Claude", "claude")
 
 
-def run_agent_integration_suite(agent_cmd, display_name):
+def run_agent_integration_suite(agent_cmd, display_name, internal_name):
     """Generic test suite for any agent."""
     print(f"\n--- Full Integration Tests ({display_name}) ---")
     all_passed = True
-    full_agent_id = f"pk_full_{agent_cmd}"
-    sub_agent_id = f"pk_sub_{agent_cmd}"
+    full_agent_id = f"pk_full_{internal_name}"
+    sub_agent_id = f"pk_sub_{internal_name}"
     log_path = LOGS_DIR / f"{full_agent_id}.log"
     state_file = STATE_DIR / f"{full_agent_id}_meta.json"
 
@@ -221,8 +228,13 @@ def run_agent_integration_suite(agent_cmd, display_name):
                 try:
                     m = json_file(state_file)
                     if m.get("status") == "BLOCKED":
-                        print("   (Main agent BLOCKED, injecting '2')")
-                        inject_text_to_agent(full_agent_id, "2")
+                        test_input = get_agent_product(full_agent_id).approve_test_input
+                        print(f"   (Main agent BLOCKED, injecting '{test_input}')")
+                        from pkood.common import get_tmux_cmd
+
+                        get_agent_product(full_agent_id).unblock_agent(
+                            full_agent_id, get_tmux_cmd
+                        )
                 except Exception:
                     pass
 
@@ -234,7 +246,7 @@ def run_agent_integration_suite(agent_cmd, display_name):
 
             # Return to IDLE
             if all_passed and not wait_for_idle(
-                full_agent_id, timeout=40, label="Final Cleanup"
+                full_agent_id, timeout=120, label="Final Cleanup"
             ):
                 all_passed = False
 
@@ -501,12 +513,12 @@ def test_pkood(args):
 
     if getattr(args, "full", False) and all_passed:
         if gemini_path:
-            gemini_passed = run_gemini_integration_tests()
+            gemini_passed = run_gemini_integration_tests(gemini_path)
             if not gemini_passed:
                 all_passed = False
 
         if claude_path:
-            claude_passed = run_claude_integration_tests()
+            claude_passed = run_claude_integration_tests(claude_path)
             if not claude_passed:
                 all_passed = False
 

@@ -25,6 +25,28 @@ class ClaudeAgentProduct(AgentProduct):
     def approve_example(self) -> str:
         return "'2' (Yes, and don't ask again for this tool in this directory)"
 
+    @property
+    def approve_test_input(self) -> str:
+        return "2"
+
+    def unblock_agent(self, agent_id, get_tmux_cmd_func):
+        import subprocess
+        import time
+
+        # Claude Code menus accept '2' immediately. Sending '2' + 'Enter' (C-m)
+        # too fast often gets ignored by its prompt toolkit.
+        subprocess.run(
+            get_tmux_cmd_func(agent_id)
+            + ["send-keys", "-t", "main", self.approve_test_input],
+            check=True,
+        )
+        time.sleep(0.5)
+        # Send an Enter in case it was at the normal prompt, to clear the '2' and return to IDLE
+        subprocess.run(
+            get_tmux_cmd_func(agent_id) + ["send-keys", "-t", "main", "C-m"],
+            check=True,
+        )
+
     def perform_long_inject(self, agent_id, text, get_tmux_cmd_func):
         import subprocess
 
