@@ -404,7 +404,7 @@ Instead, you **MUST** use the `pkood` MCP tools.
 
 ## Your Mission
 1. **Fleet Awareness**: Use `pkood:list_agents` and `pkood:tail_agents` to monitor the status of background tasks.
-2. **Orchestration**: Use `pkood:spawn_agent` to create new background tasks.
+2. **Orchestration**: Use `pkood:start` to quickly start a new Gemini session with a free-text objective, or `pkood:spawn_agent` to run a specific shell command.
 3. **Recovery**: Use `pkood:inject_to_agent` to unblock agents waiting for input.
 4. **Log Analysis**: Use `pkood:get_log_directory` to perform deep searches across the fleet's history.
 
@@ -448,29 +448,12 @@ def install_pkood_commands(agent_type):
 
     start_prompt = (
         "You are tasked with starting a new background Pkood agent to fulfill the user's request.\n"
-        "Follow these steps carefully:\n"
-        "1. Analyze the user's request. If the request is ambiguous or missing critical details "
-        "(e.g., what task to perform or which directory to use), stop and ask the user for clarification "
-        "before proceeding.\n"
-        "2. Once clear, determine:\n"
-        "   - A short, unique name for the new agent.\n"
-        "   - The target working directory (default to the current workspace root if unspecified).\n"
-        "   - A comprehensive prompt that captures exactly what the user wants the agent to do.\n"
-        "3. Use the `spawn_agent` tool to start the agent. For the command, use `gemini` or `claude` "
-        "(default to the agent CLI you are currently using).\n"
-        "4. Iteratively monitor the agent's startup using `tail_agents`.\n"
-        '5. The newly spawned CLI will likely ask initial interactive questions (e.g., "Do you trust this folder?"). '
-        "Use `inject_to_agent` to send 'y' (or other required inputs) to bypass these startup prompts.\n"
-        "6. Continue checking `tail_agents` and injecting answers until you see a standard prompt indicating "
-        "the agent is ready for instructions.\n"
-        "7. Use `inject_to_agent` to send the comprehensive prompt you drafted in step 2.\n"
-        "8. Check `list_agents` and `tail_agents` again after a brief wait to ensure the agent has started "
-        "processing the prompt and is not BLOCKED.\n"
-        '9. If the agent becomes BLOCKED asking for tool execution approval (e.g., "Allow execution of:", '
-        f'"Action Required"), use `inject_to_agent` to send the appropriate input (like {approve_example}) '
-        "to unblock it.\n"
-        "10. Verify the agent is actively working on the task and no longer BLOCKED, then report back to the "
-        "user that the agent is successfully running in the background."
+        "1. Analyze the user's request. If the request is ambiguous, ask the user for clarification.\n"
+        "2. Once clear, use the `pkood:start` tool to launch a new Gemini session with the user's objective.\n"
+        "3. Monitor the agent's progress using `pkood:list_agents` and `pkood:tail_agents`.\n"
+        "4. If the agent becomes BLOCKED asking for tool execution approval, use `pkood:inject_to_agent` "
+        f"to send {approve_example} to unblock it.\n"
+        "5. Once the agent is successfully running and no longer BLOCKED, inform the user."
     )
 
     kill_prompt = (

@@ -258,18 +258,24 @@ def start(args):
 
 def list_agents(args):
     hide_old_exited = not getattr(args, "all", False)
+    is_tab = getattr(args, "tab", False)
     agents = get_agents_status(hide_old_exited=hide_old_exited)
     if not agents:
-        if hide_old_exited:
-            print("No active or recently exited agents found (use --all to show all).")
-        else:
-            print("No agents found.")
+        if not is_tab:
+            if hide_old_exited:
+                print("No active or recently exited agents found (use --all to show all).")
+            else:
+                print("No agents found.")
         return
 
-    print(f"{'AGENT ID':<20} | {'STATUS':<10} | {'LOG'}")
-    print("-" * 50)
-    for a in agents:
-        print(f"{a['agent_id']:<20} | {a['status']:<10} | {a['log_size']}")
+    if is_tab:
+        for a in agents:
+            print(f"{a['agent_id']}\t{a['status']}\t{a['log_size']}")
+    else:
+        print(f"{'AGENT ID':<20} | {'STATUS':<10} | {'LOG'}")
+        print("-" * 50)
+        for a in agents:
+            print(f"{a['agent_id']:<20} | {a['status']:<10} | {a['log_size']}")
 
 
 def attach(args):
@@ -403,6 +409,11 @@ def main():
         "--all",
         action="store_true",
         help="Show all agents, including old EXITED ones",
+    )
+    list_parser.add_argument(
+        "--tab",
+        action="store_true",
+        help="Output as plain tab-separated list without headers",
     )
 
     # Tail

@@ -29,6 +29,30 @@ if __name__ == "__main__":
     mcp = FastMCP("pkood")
 
     @mcp.tool()
+    def start(objective: str, name: Optional[str] = None, directory: str = "."):
+        """
+        Start a new Gemini session to perform a specific objective.
+
+        Args:
+            objective: The free-text description of what the agent should do.
+            name: Optional unique identifier for the agent. If omitted, one will be generated based on the objective.
+            directory: Working directory for the agent.
+        """
+        import uuid
+        import re
+
+        if not name:
+            # Generate a name from the objective
+            clean_name = re.sub(r"[^a-zA-Z0-9]+", "-", objective[:20].lower()).strip("-")
+            name = f"{clean_name}-{str(uuid.uuid4())[:4]}"
+
+        command = f'gemini -i "{objective}"'
+        if create_agent(name, directory, command):
+            return f"Gemini agent '{name}' started with objective: {objective}"
+        else:
+            return f"Failed to start Gemini agent '{name}'."
+
+    @mcp.tool()
     def list_agents():
         """List all active Pkood agents and their status."""
         return get_agents_status()
