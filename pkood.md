@@ -1,7 +1,3 @@
-Here is a comprehensive `README.md` and technical specification for **Pkood**. I’ve structured this to be "LLM-ready" so that Antigravity (or any agent) can ingest it and immediately understand the architectural constraints and goals.
-
----
-
 # Project Pkood (פקודה)
 **An Agentic Operations (AgOps) Orchestrator for Recursive, Parallel Development.**
 

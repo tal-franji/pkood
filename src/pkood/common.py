@@ -44,7 +44,21 @@ def get_agent_product(agent_type):
     return GenericAgentProduct()
 
 
+def check_os_compatibility(feature_name: str):
+    """Ensure the OS supports the required primitives for a specific feature."""
+    if os.name == "nt":
+        unix_only_features = ["spawn", "attach", "inject", "review", "auto", "foreground"]
+        if feature_name in unix_only_features:
+            raise NotImplementedError(
+                f"The '{feature_name}' feature relies on Unix-specific tools (tmux, script, PTYs) "
+                "which are not supported natively on Windows. Please use WSL (Windows Subsystem for Linux)."
+            )
+
 def create_agent(agent_id, directory, command, foreground=False):
+    if foreground:
+        check_os_compatibility("foreground")
+    else:
+        check_os_compatibility("spawn")
     ensure_dirs()
 
     socket_path = SOCKETS_DIR / f"{agent_id}.sock"

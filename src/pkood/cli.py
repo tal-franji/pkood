@@ -20,6 +20,7 @@ from pkood.common import (
     inject_text_to_agent,
     spawn,
     kill_agent,
+    check_os_compatibility,
 )
 from pkood.tester import test_pkood
 
@@ -464,8 +465,10 @@ def main():
     args = parser.parse_args()
 
     if args.action == "spawn":
+        check_os_compatibility("spawn")
         spawn(args)
     elif args.action == "start":
+        check_os_compatibility("spawn") # start uses tmux spawn
         start(args)
     elif args.action in ("list", "ls", "ps"):
         list_agents(args)
@@ -474,12 +477,15 @@ def main():
     elif args.action == "mcp":
         cmd_mcp(args)
     elif args.action == "inject":
+        check_os_compatibility("inject")
         cmd_inject(args)
     elif args.action == "attach":
+        check_os_compatibility("attach")
         attach(args)
     elif args.action == "kill":
         kill_agent(args)
     elif args.action == "test":
+        check_os_compatibility("spawn")
         test_pkood(args)
     else:
         parser.print_help()

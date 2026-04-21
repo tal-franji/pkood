@@ -1,4 +1,4 @@
-# Pkood
+# Pkood <small>(said like 'groot')<small>
 
 ![Pkood Architecture](pkood_diag.png)
 
