@@ -21,6 +21,8 @@ from pkood.common import (
     spawn,
     kill_agent,
     check_os_compatibility,
+    discover_detached_agents,
+    get_agent_product,
 )
 from pkood.tester import test_pkood
 
@@ -59,6 +61,24 @@ def get_agents_status(hide_old_exited=True):
     results = []
     current_time = time.time()
 
+    # Pre-process Detached Agents
+    detached_agents = discover_detached_agents()
+    discovered_info_by_pkood_id = {}
+    pure_detached_by_session = {}
+
+    for da in detached_agents:
+        product = get_agent_product(da["type"])
+        lines, tail = product.read_history(da["session_id"], da["cwd"], 1)
+        da["hist_sz_str"] = f"{lines}L" if lines else "0L"
+        da["thinking_history_path"] = product.get_history_log_path(
+            da["session_id"], da["cwd"]
+        )
+
+        if da["pkood_id"]:
+            discovered_info_by_pkood_id[da["pkood_id"]] = da
+        else:
+            pure_detached_by_session[da["session_id"]] = da
+
     for agent_id in agent_ids:
         log_path = LOGS_DIR / f"{agent_id}.log"
         meta_path = STATE_DIR / f"{agent_id}_meta.json"
@@ -67,6 +87,7 @@ def get_agents_status(hide_old_exited=True):
         # 1. Get Mechanical Status (from watcher)
         status = get_json_properly(meta_path, "status", "UNKNOWN")
         is_foreground = get_json_properly(meta_path, "mode", "") == "foreground"
+        agent_type = get_json_properly(meta_path, "type", "other")
 
         log_size = (
             f"{log_path.stat().st_size / 1024:.1f}K" if log_path.exists() else "0K"
@@ -78,7 +99,7 @@ def get_agents_status(hide_old_exited=True):
                 try:
                     os.kill(int(pid), 0)
                     status = "FOREGROUND"
-                except (ProcessLookupError, ValueError):
+                except (ProcessLookupError, ValueError, OSError):
                     status = "EXITED"
             else:
                 if status != "EXITED":
@@ -88,11 +109,12 @@ def get_agents_status(hide_old_exited=True):
             try:
                 # We use `tmux ls` (list-sessions) against the specific socket file
                 # to definitively check if the tmux server is still alive and listening.
-                subprocess.run(
-                    get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
-                )
-                if status == "UNKNOWN":
-                    status = "RUNNING"
+                if os.name != "nt":
+                    subprocess.run(
+                        get_tmux_cmd(agent_id) + ["ls"], capture_output=True, check=True
+                    )
+                    if status == "UNKNOWN":
+                        status = "RUNNING"
             except subprocess.CalledProcessError:
                 status = "EXITED"
 
@@ -107,13 +129,43 @@ def get_agents_status(hide_old_exited=True):
         # 2. Get Semantic Focus (from agent)
         focus = get_json_properly(status_path, ["current_focus", "status_message"], "")
 
+        # 3. Get History Size for managed agents (if possible)
+        hist_size_str = "N/A"
+        session_id = None
+        thinking_history_path = None
+        if agent_id in discovered_info_by_pkood_id:
+            da_info = discovered_info_by_pkood_id[agent_id]
+            hist_size_str = da_info["hist_sz_str"]
+            session_id = da_info["session_id"]
+            thinking_history_path = da_info["thinking_history_path"]
+
         results.append(
             {
                 "agent_id": agent_id,
+                "agent_kind": agent_type,
                 "status": status,
                 "mode": get_json_properly(meta_path, "mode", "tmux"),
                 "log_size": log_size,
+                "hist_size": hist_size_str,
                 "focus": focus,
+                "session_id": session_id,
+                "thinking_history_path": thinking_history_path,
+            }
+        )
+
+    # 4. Append Pure Detached Agents
+    for s_id, da in pure_detached_by_session.items():
+        results.append(
+            {
+                "agent_id": da["agent_id"],
+                "agent_kind": da["type"],
+                "status": da["status"],
+                "mode": "DETACH",
+                "log_size": "N/A",
+                "hist_size": da["hist_sz_str"],
+                "focus": da["cwd"],
+                "session_id": da["session_id"],
+                "thinking_history_path": da["thinking_history_path"],
             }
         )
     return results
@@ -206,9 +258,74 @@ def cmd_tail(args):
 
     for agent_id, clean_text in tails.items():
         print(f"## Agent: {agent_id}")
-        print("```")
         print(clean_text)
-        print("```\n")
+        print()
+
+
+def get_all_hist(filter_id=None, lines=50):
+    """Returns a dictionary of agent IDs and their internal history/thought log tails."""
+    agents = get_agents_status(hide_old_exited=True)
+    hists = {}
+
+    # Map running detached agents
+    detached_agents = discover_detached_agents()
+    discovered_info_by_pkood_id = {}
+    pure_detached_by_session = {}
+
+    for da in detached_agents:
+        if da["pkood_id"]:
+            discovered_info_by_pkood_id[da["pkood_id"]] = da
+        else:
+            pure_detached_by_session[da["session_id"]] = da
+
+    for a in agents:
+        agent_id = a["agent_id"]
+        if filter_id and agent_id != filter_id:
+            continue
+
+        if a["mode"] == "DETACH":
+            # For pure detached agents, the agent_id is generated by discovery
+            da = next(
+                (
+                    v
+                    for k, v in pure_detached_by_session.items()
+                    if v["agent_id"] == agent_id
+                ),
+                None,
+            )
+            if da:
+                product = get_agent_product(da["type"])
+                total, tail = product.read_history(da["session_id"], da["cwd"], lines)
+                hists[agent_id] = f"[Total Lines: {total}]\n{tail}"
+        else:
+            # Managed agents (tmux/foreground) might have been mapped by PKOOD_AGENT_ID
+            da = discovered_info_by_pkood_id.get(agent_id)
+            if da:
+                product = get_agent_product(da["type"])
+                total, tail = product.read_history(da["session_id"], da["cwd"], lines)
+                hists[agent_id] = f"[Total Lines: {total}]\n{tail}"
+            else:
+                hists[agent_id] = (
+                    "History mapping not available for this managed agent."
+                )
+
+    return hists
+
+
+def cmd_hist(args):
+    """The 'hist' command: outputs the last N lines of the internal thought log."""
+    hists = get_all_hist(filter_id=args.name, lines=args.lines)
+    if not hists:
+        if args.name:
+            print(f"Agent '{args.name}' not found or not active.")
+        else:
+            print("No active agents found with history.")
+        return
+
+    for agent_id, text in hists.items():
+        print(f"## Agent: {agent_id} History")
+        print(text)
+        print()
 
 
 def auto_detect_agent():
@@ -264,19 +381,28 @@ def list_agents(args):
     if not agents:
         if not is_tab:
             if hide_old_exited:
-                print("No active or recently exited agents found (use --all to show all).")
+                print(
+                    "No active or recently exited agents found (use --all to show all)."
+                )
             else:
                 print("No agents found.")
         return
 
     if is_tab:
         for a in agents:
-            print(f"{a['agent_id']}\t{a['status']}\t{a['log_size']}")
+            print(
+                f"{a['agent_id']}\t{a['status']}\t{a['log_size']}\t{a['hist_size']}\t{a['agent_kind']}"
+            )
     else:
-        print(f"{'AGENT ID':<20} | {'STATUS':<10} | {'LOG'}")
-        print("-" * 50)
+        print(
+            f"{'AGENT ID':<20} | {'KIND':<8} | {'STATUS':<10} | {'LOG':<8} | {'HIST'}"
+        )
+        print("-" * 65)
         for a in agents:
-            print(f"{a['agent_id']:<20} | {a['status']:<10} | {a['log_size']}")
+            print(
+                f"{a['agent_id']:<20} | {a['agent_kind']:<8} | {a['status']:<10} | "
+                f"{a['log_size']:<8} | {a['hist_size']}"
+            )
 
 
 def attach(args):
@@ -419,9 +545,20 @@ def main():
 
     # Tail
     tail_parser = subparsers.add_parser(
-        "tail", help="Output the last 50 lines of logs for all active agents"
+        "tail", help="Output the last 50 lines of stdio logs for managed agents"
     )
     tail_parser.add_argument("name", nargs="?", help="Optional name of the agent")
+
+    # Hist
+    hist_parser = subparsers.add_parser(
+        "hist",
+        aliases=["history"],
+        help="Output the tail of the internal thought/history log",
+    )
+    hist_parser.add_argument("name", nargs="?", help="Optional name of the agent")
+    hist_parser.add_argument(
+        "-n", "--lines", type=int, default=50, help="Number of lines to tail"
+    )
 
     # Attach
     attach_parser = subparsers.add_parser("attach", help="Attach to an agent session")
@@ -468,12 +605,17 @@ def main():
         check_os_compatibility("spawn")
         spawn(args)
     elif args.action == "start":
-        check_os_compatibility("spawn") # start uses tmux spawn
+        if getattr(args, "foreground", False):
+            check_os_compatibility("foreground")
+        else:
+            check_os_compatibility("spawn")
         start(args)
     elif args.action in ("list", "ls", "ps"):
         list_agents(args)
     elif args.action == "tail":
         cmd_tail(args)
+    elif args.action in ("hist", "history"):
+        cmd_hist(args)
     elif args.action == "mcp":
         cmd_mcp(args)
     elif args.action == "inject":

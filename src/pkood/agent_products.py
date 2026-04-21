@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import Optional
 
 
 class AgentProduct(ABC):
@@ -42,3 +43,28 @@ class AgentProduct(ABC):
             get_tmux_cmd_func(agent_id) + ["send-keys", "-t", "main", "C-m"],
             check=True,
         )
+
+    # --- v2 Detached Agent Heuristics ---
+
+    def is_my_process(self, cmdline: list[str]) -> bool:
+        """Returns True if the process command line matches this agent type."""
+        return False
+
+    def get_session_id(
+        self, cwd: str, cmdline: Optional[list[str]] = None
+    ) -> Optional[str]:
+        """Extracts the internal session ID based on the working directory or cmdline."""
+        return None
+
+    def get_history_log_path(self, session_id: str, cwd: str) -> Optional[str]:
+        """Returns the path to the internal thought/history log."""
+        return None
+
+    def read_history(
+        self, session_id: str, cwd: str, num_lines: int = 50
+    ) -> tuple[int, str]:
+        """
+        Reads the tail of the internal thought/history log.
+        Returns a tuple: (total_lines_or_bytes, raw_tail_string)
+        """
+        return 0, "History not available."

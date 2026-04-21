@@ -2,13 +2,13 @@
 
 ![Pkood Architecture](pkood_diag.png)
 
-Run tens of agent sessions (Claude-code / Gemini-CLI) in parallel. Monitor them and attach to them when needed. Get notified when they are blocked and await your input.
+Run tens of agent sessions (Claude-code / Gemini-CLI / Antigravity) in parallel. Monitor them, attach to them, and analyze their internal thought logs. Get notified when they are blocked and await your input.
 
 ## Installation
 
 1. **Requirements**: 
    - Python 3.10+
-   - `tmux` (Available via `brew install tmux` on macOS or `sudo apt install tmux` on Linux/Windows:WSL2).
+   - `tmux` (Required for managed background sessions. Available via `brew install tmux` on macOS or `sudo apt install tmux` on Linux/Windows:WSL2).
 
 2. **Install via PyPI**:
    ```bash
@@ -24,14 +24,14 @@ Run tens of agent sessions (Claude-code / Gemini-CLI) in parallel. Monitor them 
    ```
 
 4. **Verify and Configure**:
-   Run the system check to ensure Tmux is installed and to automatically configure your AI agents (Gemini CLI / Claude Code) to talk to the Pkood control plane:
+   Run the system check to ensure requirements are installed and to automatically configure your AI agents (Gemini CLI / Claude Code) to talk to the Pkood control plane:
    ```bash
    pkood test
    ```
 
 ## Operation
 
-Pkood treats AI agents and long-running tasks as managed services. All state is stored in `~/.pkood/`.
+Pkood treats AI agents and long-running tasks as managed services. It also automatically discovers independent agents (like Antigravity or raw CLI sessions) running on your system.
 
 ### Commands
 
@@ -52,13 +52,20 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   ```
 
 - **List active agents**:
-  Shows all agents, their current status (RUNNING, IDLE, BLOCKED, or EXITED), and log sizes.
+  Shows all agents, their current status (RUNNING, IDLE, BLOCKED, EXITED, or DETACH), standard I/O log size, and internal history size.
   ```bash
   pkood ls
   ```
+  *Note: Agents in `DETACH` mode are independent processes (like Antigravity) discovered via system heuristics.*
+
+- **View Thinking History**:
+  Tails the internal thought/chat log of an agent (as opposed to its terminal standard I/O).
+  ```bash
+  pkood hist research-task -n 100
+  ```
 
 - **Attach to a session**:
-  Join a running agent's terminal.
+  Join a running agent's terminal (Managed agents only).
   ```bash
   pkood attach research-task
   ```
@@ -71,13 +78,13 @@ Pkood treats AI agents and long-running tasks as managed services. All state is 
   ```
 
 - **Inject input**:
-  Send text directly to a background agent's terminal (e.g. to unblock a prompt).
+  Send text directly to a background agent's terminal (Managed agents only).
   ```bash
   pkood inject research-task "y"
   ```
 
 ### Key Shortcuts (within a session)
-After attaching to the session you can use the following Tmux keys:
+After attaching to a managed session, you can use the following Tmux keys:
 
 - **Detach**: `Ctrl+B` followed by `D`
 - **Scroll Mode**: `Ctrl+B` followed by `[` (Press `q` to exit)
@@ -96,15 +103,15 @@ pkood test
 ### Use the Skills and Slash Commands
 Pkood installs custom slash commands into your AI CLI to make fleet management seamless.
 
-*   **View Fleet Status:** Show all active agents, their status, and an intelligent summary of what they are doing.
+*   **View Fleet Status:** Show all active agents, their status, and an intelligent summary synthesized from both terminal output and internal thought logs.
     ```bash
     /pkood:status
     ```
-*   **Review and Unblock:** Triage all currently blocked agents in a single step, presenting a numbered list of pending actions for batch approval.
+*   **Review and Unblock:** Triage all currently blocked managed agents in a single step, presenting a numbered list of pending actions for batch approval.
     ```bash
     /pkood:review
     ```
-*   **Auto Review and Unblock:** Automatically act as a Fleet Manager to triage blocked agents. Approves actions that are not obviously dangerous or large refactoring, and rejects others with feedback.
+*   **Auto Review and Unblock:** Automatically act as a Fleet Manager to triage blocked agents. Approves actions that are not obviously dangerous or large refactoring.
     ```bash
     /pkood:auto
     ```
@@ -113,14 +120,9 @@ Pkood installs custom slash commands into your AI CLI to make fleet management s
     /pkood:start
     Write a Python script that finds the first 4 perfect numbers.
     ```
-*   **Kill an Agent:** Ask your current agent to terminate a specific background task.
-    ```bash
-    /pkood:kill <agent_name>
-    ```
 
 ## The AgOps Control Plane (MCP)
 This is the internal service used by the skills and slash commands. You do not need to use it directly.
-
 
 Pkood includes a built-in **Model Context Protocol (MCP)** server. This transforms Pkood from a simple CLI tool into an orchestration layer that your AI agents can use to manage each other.
 
@@ -132,27 +134,31 @@ pkood mcp
 *(Runs on `http://localhost:8000/sse` by default)*
 
 ### What Agents Can Do
-Once your agents (like Gemini CLI or Claude Code) are connected to the Pkood MCP, they gain "fleet awareness." You can give them high-level commands like:
+Once your agents (like Gemini CLI or Claude Code) are connected to the Pkood MCP, they gain "fleet awareness." They can use the following tools:
+- **`list_agents`**: See the full state of the system.
+- **`tail_agents`**: Read the standard I/O (terminal output) of managed agents.
+- **`hist_agents`**: Read the internal thinking/history logs of any discovered agent.
+- **`inject_to_agent`**: Remotely unblock managed agents.
+- **`format_status_table`**: Generate a consistent, human-readable fleet dashboard.
 
-*   **Fleet Summarization**: *"Check the logs of all active agents and give me a 1-sentence status report for each."*
-*   **Remote Unblocking**: *"I see the 'worker-1' agent is stuck on a confirmation. Send it a 'y' to continue."*
-*   **Autonomous Spawning**: *"Once 'data-cleanup' finishes, spawn a new agent to run the 'training-job'."*
-*   **Deep Log Analysis**: *"Search through all agent logs for any 'OutOfMemory' errors."*
-
-By exposing the low-level Tmux primitives as structured MCP tools, Pkood enables a recursive, multi-agent development workflow where one "Manager" agent can coordinate a fleet of specialized workers.
+By exposing both the mechanical terminal primitives and the semantic internal logs as structured MCP tools, Pkood enables a recursive, multi-agent development workflow where one "Manager" agent can coordinate a fleet of specialized workers.
 
 ## Comparison: Pkood vs. Claude `/batch`
 
-While Claude Code's `/batch` skill is excellent for quick, sequential automation, Pkood is designed for long-running, autonomous operations.
+While Claude Code's `/batch` skill is excellent for quick, sequential automation, Pkood is designed for long-running, autonomous operations and IDE-based development.
 
 | Feature | Claude `/batch` | Pkood |
 | :--- | :--- | :--- |
-| **Persistence** | Ephemeral (stops if terminal closes) | **Persistent** (runs in background via Tmux) |
-| **Visibility** | Simple progress status | **Full Terminal Attachment** (`pkood attach`) |
+| **Persistence** | Ephemeral (stops if terminal closes) | **Persistent** (background or system-detached) |
+| **Visibility** | Simple progress status | **Full Terminal Attachment** + **Internal Thought Analysis** |
 | **Context** | Single-session focus | **Fleet-wide awareness** via MCP |
 | **Control** | Stop/Start only | **Inject input**, search logs, and manage state |
-| **Workflow** | Sequential local tasks | **AgOps Orchestration** (Agents manage agents) |
+| **Hybrid Workflow** | Terminal only | **Unifies IDE (Antigravity) and CLI agents** |
 
 **Use `/batch`** when you want to automate 10 small local edits in your current session.
 
-**Use Pkood** when you want to run a fleet of independent agents that work autonomously across different projects and require high-level coordination.
+**Use Pkood** when you want to run a fleet of independent agents that work autonomously across different projects and require high-level coordination and observability.
+
+## Comparison: Pkood vs. Claude Desktop
+Claude Desktop app allow nice UI to moving between terminal sessions and some may find them more convenient than working with `tmux` sessions. However Claude Desktop does not allow one agent to reason about other agents output and thought-process.
+

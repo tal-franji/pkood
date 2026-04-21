@@ -5,6 +5,7 @@ import time
 import json
 import re
 import platform
+import psutil
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".pkood"
@@ -39,20 +40,110 @@ def get_agent_product(agent_type):
         from pkood.claude_code import ClaudeAgentProduct
 
         return ClaudeAgentProduct()
+    if agent_type == "antigravity":
+        from pkood.antigravity import AntigravityAgentProduct
+
+        return AntigravityAgentProduct()
     from pkood.generic_product import GenericAgentProduct
 
     return GenericAgentProduct()
 
 
+def discover_detached_agents() -> list[dict]:
+    """Scans the system process list for agent processes not managed by tmux."""
+    from pkood.gemini_cli import GeminiAgentProduct
+    from pkood.claude_code import ClaudeAgentProduct
+    from pkood.antigravity import AntigravityAgentProduct
+
+    products = {
+        "gemini": GeminiAgentProduct(),
+        "claude": ClaudeAgentProduct(),
+        "antigravity": AntigravityAgentProduct(),
+    }
+
+    detached_agents = []
+
+    try:
+        for p in psutil.process_iter(["pid", "name", "cmdline", "cwd"]):
+            try:
+                cmd = p.info.get("cmdline") or []
+                if not cmd:
+                    continue
+
+                matched_type = None
+                matched_product = None
+
+                for a_type, product in products.items():
+                    if product.is_my_process(cmd):
+                        matched_type = a_type
+                        matched_product = product
+                        break
+
+                if matched_type:
+                    cwd = p.info.get("cwd", "")
+                    if not cwd:
+                        continue
+
+                    if matched_product is not None:
+                        session_id = matched_product.get_session_id(cwd, cmdline=cmd)
+                        if session_id:
+                            # Generate a more semantic agent ID
+                            if matched_type == "antigravity" and session_id.startswith("/"):
+                                folder_name = Path(session_id).name
+                                agent_id = f"{folder_name}_{p.info['pid']}"
+                            else:
+                                agent_id = f"{matched_type}_{p.info['pid']}"
+
+                            pkood_id = None
+                            try:
+                                env = p.environ()
+                                pkood_id = env.get("PKOOD_AGENT_ID")
+                            except Exception:
+                                pass
+
+                            # For Antigravity, we want to show the workspace as the 'CWD'
+                            display_cwd = cwd
+                            if matched_type == "antigravity" and session_id.startswith(
+                                "/"
+                            ):
+                                display_cwd = session_id
+
+                            detached_agents.append(
+                                {
+                                    "agent_id": agent_id,
+                                    "pkood_id": pkood_id,
+                                    "type": matched_type,
+                                    "pid": p.info["pid"],
+                                    "cwd": display_cwd,
+                                    "session_id": session_id,
+                                    "status": "DETACH",
+                                }
+                            )
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+    except Exception:
+        pass
+
+    return detached_agents
+
+
 def check_os_compatibility(feature_name: str):
     """Ensure the OS supports the required primitives for a specific feature."""
     if os.name == "nt":
-        unix_only_features = ["spawn", "attach", "inject", "review", "auto", "foreground"]
+        unix_only_features = [
+            "spawn",
+            "attach",
+            "inject",
+            "review",
+            "auto",
+            "foreground",
+        ]
         if feature_name in unix_only_features:
             raise NotImplementedError(
                 f"The '{feature_name}' feature relies on Unix-specific tools (tmux, script, PTYs) "
                 "which are not supported natively on Windows. Please use WSL (Windows Subsystem for Linux)."
             )
+
 
 def create_agent(agent_id, directory, command, foreground=False):
     if foreground:
@@ -418,7 +509,7 @@ Instead, you **MUST** use the `pkood` MCP tools.
 
 ## Your Mission
 1. **Fleet Awareness**: Use `pkood:list_agents` and `pkood:tail_agents` to monitor the status of background tasks.
-2. **Orchestration**: Use `pkood:start` to quickly start a new Gemini session with a free-text objective, or `pkood:spawn_agent` to run a specific shell command.
+2. **Orchestration**: Use `pkood:start` or `pkood:spawn_agent`.
 3. **Recovery**: Use `pkood:inject_to_agent` to unblock agents waiting for input.
 4. **Log Analysis**: Use `pkood:get_log_directory` to perform deep searches across the fleet's history.
 
@@ -452,12 +543,16 @@ def install_pkood_commands(agent_type):
     approve_example = product.approve_example
 
     status_prompt = (
-        "Call the pkood:list_agents and pkood:tail_agents MCP tools. "
-        "Analyze the output and provide a concise, one-sentence summary of what each active agent is currently doing. "
-        "Present the final results in a plain ASCII table with columns: Agent ID, Status, and Summary. "
-        "If an agent is BLOCKED, explicitly explain why in the Summary column. "
-        "IMPORTANT: If an agent has `mode: foreground`, explicitly mention that it is running in the user's active "
-        "terminal and cannot be controlled remotely via MCP."
+        "Call the `list_agents`, `tail_agents`, and `hist_agents` MCP tools. "
+        "Analyze the output to provide a comprehensive summary of what each active agent is doing.\n"
+        "Note the difference between the streams:\n"
+        "- 'tail_agents' provides the mechanical standard I/O (what is printed to the terminal). "
+        "Required for managed agents to see if they are blocked.\n"
+        "- 'hist_agents' provides the semantic internal thought logs (what the agent is actually thinking).\n"
+        "If an agent is DETACHED, you must rely entirely on its `hist_agents` output to understand its state.\n"
+        "After synthesizing the data, call the `format_status_table` MCP tool with your structured summary data "
+        "(providing agent_id, kind, status, mode, and summary for each agent).\n"
+        "Finally, print the exact table returned by the tool, without any additional conversational filler."
     )
 
     start_prompt = (
@@ -485,8 +580,9 @@ def install_pkood_commands(agent_type):
         "2. For each such agent, call `tail_agents(name=agent_id)` to see exactly what tool or command "
         "it is waiting for approval on.\n"
         "3. Present a numbered ASCII table to the user with columns: #, Agent ID, Mode, and Pending Action.\n"
-        "4. **CRITICAL**: If an agent has `mode: foreground`, you cannot unblock it. In the Pending Action column, "
-        "write 'Manual Action Required in Terminal'.\n"
+        "4. **CRITICAL**: If an agent has `mode: foreground` or `mode: DETACH`, you cannot unblock it. "
+        "In the Pending Action column,\n"
+        "   write 'Manual Action Required in Terminal' or 'Cannot inject into DETACH agent'.\n"
         "5. Ask the user: 'Which background (tmux) agents should I unblock? (Reply with numbers, or \"all\")'.\n"
         f"6. Once the user provides the numbers, use `inject_to_agent` to send {approve_example} to each "
         "of the selected background agents.\n"
@@ -501,7 +597,7 @@ def install_pkood_commands(agent_type):
         "it is waiting for approval on.\n"
         "3. Evaluate the pending action. Approve anything that is not obviously dangerous or a big design change "
         "or refactor.\n"
-        "4. **CRITICAL**: If an agent has `mode: foreground`, you cannot unblock it. Skip it.\n"
+        "4. **CRITICAL**: If an agent has `mode: foreground` or `mode: DETACH`, you cannot unblock it. Skip it.\n"
         f"5. For each background agent you decide to approve, use `inject_to_agent` to send {approve_example} "
         "to unblock it.\n"
         "6. If you decide to reject or provide feedback (e.g. because it is dangerous or a large refactor), use "

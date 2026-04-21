@@ -18,6 +18,7 @@ if __name__ == "__main__":
     from pkood.cli import (
         get_agents_status,
         get_all_tails,
+        get_all_hist,
     )
 
     parser = argparse.ArgumentParser()
@@ -43,7 +44,9 @@ if __name__ == "__main__":
 
         if not name:
             # Generate a name from the objective
-            clean_name = re.sub(r"[^a-zA-Z0-9]+", "-", objective[:20].lower()).strip("-")
+            clean_name = re.sub(r"[^a-zA-Z0-9]+", "-", objective[:20].lower()).strip(
+                "-"
+            )
             name = f"{clean_name}-{str(uuid.uuid4())[:4]}"
 
         command = f'gemini -i "{objective}"'
@@ -56,6 +59,27 @@ if __name__ == "__main__":
     def list_agents():
         """List all active Pkood agents and their status."""
         return get_agents_status()
+
+    @mcp.tool()
+    def tail_agents(name: Optional[str] = None):
+        """
+        Get the last 50 lines of stdio logs from managed active agents.
+
+        Args:
+            name: Optional unique identifier of the agent. If omitted, returns logs for all active agents.
+        """
+        return get_all_tails(filter_id=name)
+
+    @mcp.tool()
+    def hist_agents(name: Optional[str] = None, lines: int = 50):
+        """
+        Get the tail of the internal thought/history log from active agents (both managed and detached).
+
+        Args:
+            name: Optional unique identifier of the agent.
+            lines: Number of lines to tail (default 50).
+        """
+        return get_all_hist(filter_id=name, lines=lines)
 
     @mcp.tool()
     def spawn_agent(name: str, directory: str, command: str):
@@ -71,16 +95,6 @@ if __name__ == "__main__":
             return f"Agent '{name}' spawned successfully."
         else:
             return f"Failed to spawn agent '{name}'."
-
-    @mcp.tool()
-    def tail_agents(name: Optional[str] = None):
-        """
-        Get the last 50 lines of logs from active agents.
-
-        Args:
-            name: Optional unique identifier of the agent. If omitted, returns logs for all active agents.
-        """
-        return get_all_tails(filter_id=name)
 
     @mcp.tool()
     def kill_agent(name: str):
@@ -117,6 +131,49 @@ if __name__ == "__main__":
         Note: You will need to ask the user for permission to access this path if it's outside your workspace.
         """
         return str(LOGS_DIR.resolve())
+
+    @mcp.tool()
+    def format_status_table(agent_summaries: list[dict]) -> str:
+        """
+        Formats a list of agent summaries into a consistent ASCII table.
+
+        Args:
+            agent_summaries: A list of dictionaries. Each MUST have the keys:
+                             'agent_id', 'kind', 'status', 'mode', and 'summary'.
+        """
+        if not agent_summaries:
+            return "No active agents to summarize."
+
+        id_w = max(
+            10,
+            max((len(str(a.get("agent_id", ""))) for a in agent_summaries), default=10),
+        )
+        kind_w = max(
+            6, max((len(str(a.get("kind", ""))) for a in agent_summaries), default=6)
+        )
+        status_w = max(
+            8, max((len(str(a.get("status", ""))) for a in agent_summaries), default=8)
+        )
+        mode_w = max(
+            6, max((len(str(a.get("mode", ""))) for a in agent_summaries), default=6)
+        )
+
+        header = (
+            f"| {'AGENT ID'.ljust(id_w)} | {'KIND'.ljust(kind_w)} | "
+            f"{'STATUS'.ljust(status_w)} | {'MODE'.ljust(mode_w)} | SUMMARY"
+        )
+        sep = f"|-{'-'*id_w}-|-{'-'*kind_w}-|-{'-'*status_w}-|-{'-'*mode_w}-|{'-'*30}"
+
+        lines = [header, sep]
+        for a in agent_summaries:
+            aid = str(a.get("agent_id", "")).ljust(id_w)
+            kind = str(a.get("kind", "")).ljust(kind_w)
+            status = str(a.get("status", "")).ljust(status_w)
+            mode = str(a.get("mode", "")).ljust(mode_w)
+            summary = str(a.get("summary", ""))
+            lines.append(f"| {aid} | {kind} | {status} | {mode} | {summary}")
+
+        return "\n".join(lines)
 
     if args.stdio:
         mcp.run()
