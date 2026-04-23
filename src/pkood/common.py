@@ -88,7 +88,9 @@ def discover_detached_agents() -> list[dict]:
                         session_id = matched_product.get_session_id(cwd, cmdline=cmd)
                         if session_id:
                             # Generate a more semantic agent ID
-                            if matched_type == "antigravity" and session_id.startswith("/"):
+                            if matched_type == "antigravity" and session_id.startswith(
+                                "/"
+                            ):
                                 folder_name = Path(session_id).name
                                 agent_id = f"{folder_name}_{p.info['pid']}"
                             else:

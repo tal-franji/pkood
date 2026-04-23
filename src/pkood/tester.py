@@ -270,18 +270,9 @@ def json_file(filename):
         return json.load(f)
 
 
-def test_pkood(args):
-    # We need to import these here or they will be circular if we put them at the top
-    # but wait, tester.py doesn't need to import from cli.py anymore!
-    from pkood.common import kill_agent_by_id
-
-    print("Running Pkood System Tests...\n")
-    all_passed = True
-
-    # 1. Environment Checks
+def _check_environment() -> bool:
     print("--- Environment Check ---")
-
-    # Check OS / WSL
+    all_passed = True
     sys_os = platform.system()
     print(f"Operating System: {sys_os}")
     if sys_os == "Windows":
@@ -292,7 +283,6 @@ def test_pkood(args):
     elif sys_os == "Linux" and "microsoft-standard" in platform.release().lower():
         print("WSL2 Environment detected: OK")
 
-    # Check Tmux
     try:
         subprocess.run(["tmux", "-V"], capture_output=True, check=True)
         print("Tmux installation: OK")
@@ -304,129 +294,160 @@ def test_pkood(args):
             print("    Install via apt: sudo apt install tmux")
         all_passed = False
 
-    # 2. AI Agent & MCP Checks
-    print("\n--- AI Agent & MCP Check ---")
+    return all_passed
 
-    # Gemini CLI
+
+def _check_gemini() -> str | None:
     gemini_path = shutil.which("gemini")
-    if gemini_path:
-        print(f"Gemini CLI found: {gemini_path}")
-        settings_path = Path.home() / ".gemini" / "settings.json"
-        configured = False
-        if settings_path.exists():
-            try:
-                settings = json_file(settings_path)
-                # Check both for robustness, but Gemini CLI uses "mcpServers"
-                mcp_servers = settings.get("mcpServers", {})
-                if "pkood" in mcp_servers:
-                    configured = True
-            except Exception:
-                pass
+    if not gemini_path:
+        print("Gemini CLI: Not found")
+        return None
 
-        if configured:
-            print("   MCP Configuration: OK")
-        else:
-            print("   [!] MCP Configuration: MISSING")
-            if ask_confirmation(
-                "       Would you like to automatically configure Gemini CLI for Pkood?"
-            ):
-                fix_gemini_config()
-            else:
-                print("       Skipping Gemini CLI configuration.")
+    print(f"Gemini CLI found: {gemini_path}")
+    settings_path = Path.home() / ".gemini" / "settings.json"
+    configured = False
+    if settings_path.exists():
+        try:
+            settings = json_file(settings_path)
+            mcp_servers = settings.get("mcpServers", {})
+            if "pkood" in mcp_servers:
+                configured = True
+        except Exception:
+            pass
 
-        # Skill & Command check
-        skill_path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
-        cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
-        kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
-        review_path = Path.home() / ".gemini" / "commands" / "pkood" / "review.toml"
-        auto_path = Path.home() / ".gemini" / "commands" / "pkood" / "auto.toml"
-        if (
-            skill_path.exists()
-            and cmd_path.exists()
-            and kill_path.exists()
-            and review_path.exists()
-            and auto_path.exists()
+    if configured:
+        print("   MCP Configuration: OK")
+    else:
+        print("   [!] MCP Configuration: MISSING")
+        if ask_confirmation(
+            "       Would you like to automatically configure Gemini CLI for Pkood?"
         ):
-            # Always update to ensure latest version
+            fix_gemini_config()
+        else:
+            print("       Skipping Gemini CLI configuration.")
+
+    if settings_path.exists():
+        try:
+            settings = json_file(settings_path)
+            telemetry = settings.get("telemetry", {})
+            if telemetry.get("enabled") is True and telemetry.get("target") == "gcp":
+                print("   Telemetry Configuration: OK")
+            else:
+                print("   [!] Telemetry Configuration: NOT ENABLED")
+                print(
+                    "       Company-level telemetry allows you to measure token usage, latency, etc."
+                )
+                print(
+                    "       While Pkood does not strictly rely on telemetry, "
+                    "enabling it is recommended for full observability."
+                )
+                print(
+                    "       If you wish to enable it, add the following to ~/.gemini/settings.json:"
+                )
+                print(
+                    '       {\n         "telemetry": {\n           "enabled": true,\n           '
+                    '"target": "gcp"\n         }\n       }'
+                )
+        except Exception:
+            print(
+                "   [!] Telemetry Configuration: UNKNOWN (Failed to read settings.json)"
+            )
+
+    skill_path = Path.home() / ".gemini" / "skills" / "pkood" / "SKILL.md"
+    cmd_path = Path.home() / ".gemini" / "commands" / "pkood" / "status.toml"
+    kill_path = Path.home() / ".gemini" / "commands" / "pkood" / "kill.toml"
+    review_path = Path.home() / ".gemini" / "commands" / "pkood" / "review.toml"
+    auto_path = Path.home() / ".gemini" / "commands" / "pkood" / "auto.toml"
+
+    if (
+        skill_path.exists()
+        and cmd_path.exists()
+        and kill_path.exists()
+        and review_path.exists()
+        and auto_path.exists()
+    ):
+        install_pkood_skill("gemini")
+        install_pkood_commands("gemini")
+        print("   Pkood Skill & Commands: OK")
+    else:
+        print("   [!] Pkood Skill & Commands: MISSING")
+        if ask_confirmation(
+            "       Would you like to install Pkood Skills and Slash Commands for Gemini CLI?"
+        ):
             install_pkood_skill("gemini")
             install_pkood_commands("gemini")
             print("   Pkood Skill & Commands: OK")
         else:
-            print("   [!] Pkood Skill & Commands: MISSING")
-            if ask_confirmation(
-                "       Would you like to install Pkood Skills and Slash Commands for Gemini CLI?"
-            ):
-                install_pkood_skill("gemini")
-                install_pkood_commands("gemini")
-                print("   Pkood Skill & Commands: OK")
-            else:
-                print("       Skipping Pkood Skill & Commands installation.")
-    else:
-        print("Gemini CLI: Not found")
+            print("       Skipping Pkood Skill & Commands installation.")
 
-    # Claude Code
-    # Support both global and local bin
+    return gemini_path
+
+
+def _check_claude() -> str | None:
     claude_path = shutil.which("claude")
     if not claude_path:
         local_claude = Path.home() / ".local" / "bin" / "claude"
         if local_claude.exists():
             claude_path = str(local_claude)
 
-    if claude_path:
-        print(f"Claude Code found: {claude_path}")
-        config_path = Path.home() / ".claude.json"
-        configured = False
-        if config_path.exists():
-            try:
-                config = json_file(config_path)
-                mcp_servers = config.get("mcpServers", {})
-                if "pkood" in mcp_servers:
-                    configured = True
-            except Exception:
-                pass
+    if not claude_path:
+        print("Claude Code: Not found")
+        return None
 
-        if configured:
-            print("   MCP Configuration: OK")
-        else:
-            print("   [!] MCP Configuration: MISSING")
-            if ask_confirmation(
-                "       Would you like to automatically configure Claude Code for Pkood?"
-            ):
-                fix_claude_config()
-            else:
-                print("       Skipping Claude Code configuration.")
+    print(f"Claude Code found: {claude_path}")
+    config_path = Path.home() / ".claude.json"
+    configured = False
+    if config_path.exists():
+        try:
+            config = json_file(config_path)
+            mcp_servers = config.get("mcpServers", {})
+            if "pkood" in mcp_servers:
+                configured = True
+        except Exception:
+            pass
 
-        # Skill & Command check
-        skill_path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
-        cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
-        kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
-        review_path = Path.home() / ".claude" / "commands" / "pkood:review.md"
-        auto_path = Path.home() / ".claude" / "commands" / "pkood:auto.md"
-        if (
-            skill_path.exists()
-            and cmd_path.exists()
-            and kill_path.exists()
-            and review_path.exists()
-            and auto_path.exists()
+    if configured:
+        print("   MCP Configuration: OK")
+    else:
+        print("   [!] MCP Configuration: MISSING")
+        if ask_confirmation(
+            "       Would you like to automatically configure Claude Code for Pkood?"
         ):
-            # Always update to ensure latest version
+            fix_claude_config()
+        else:
+            print("       Skipping Claude Code configuration.")
+
+    skill_path = Path.home() / ".claude" / "skills" / "pkood" / "SKILL.md"
+    cmd_path = Path.home() / ".claude" / "commands" / "pkood:status.md"
+    kill_path = Path.home() / ".claude" / "commands" / "pkood:kill.md"
+    review_path = Path.home() / ".claude" / "commands" / "pkood:review.md"
+    auto_path = Path.home() / ".claude" / "commands" / "pkood:auto.md"
+
+    if (
+        skill_path.exists()
+        and cmd_path.exists()
+        and kill_path.exists()
+        and review_path.exists()
+        and auto_path.exists()
+    ):
+        install_pkood_skill("claude")
+        install_pkood_commands("claude")
+        print("   Pkood Skill & Commands: OK")
+    else:
+        print("   [!] Pkood Skill & Commands: MISSING")
+        if ask_confirmation(
+            "       Would you like to install Pkood Skills and Slash Commands for Claude Code?"
+        ):
             install_pkood_skill("claude")
             install_pkood_commands("claude")
             print("   Pkood Skill & Commands: OK")
         else:
-            print("   [!] Pkood Skill & Commands: MISSING")
-            if ask_confirmation(
-                "       Would you like to install Pkood Skills and Slash Commands for Claude Code?"
-            ):
-                install_pkood_skill("claude")
-                install_pkood_commands("claude")
-                print("   Pkood Skill & Commands: OK")
-            else:
-                print("       Skipping Pkood Skill & Commands installation.")
-    else:
-        print("Claude Code: Not found")
+            print("       Skipping Pkood Skill & Commands installation.")
 
-    # 3. MCP Service Check
+    return claude_path
+
+
+def _check_mcp_service() -> bool:
     print("\n--- MCP Service Check ---")
     pid_file = BASE_DIR / "mcp.pid"
     mcp_running = False
@@ -441,28 +462,29 @@ def test_pkood(args):
 
     if mcp_running:
         print("MCP Service Status: RUNNING")
-    else:
-        print("   [!] MCP Service Status: NOT RUNNING")
-        if ask_confirmation("       Would you like to start the MCP service now?"):
-            try:
-                subprocess.run([sys.executable, "-m", "pkood.cli", "mcp"], check=True)
-                print("       MCP service started successfully.")
-                mcp_running = True
-            except subprocess.CalledProcessError:
-                print("       [!] Failed to start MCP service automatically.")
-                print("       Please start it using: pkood mcp")
-                all_passed = False
-        else:
-            print("       Skipping MCP service startup.")
+        return True
 
-    if not all_passed:
-        print(
-            "\n[!] Pre-flight checks failed. Please resolve the issues above and try again."
-        )
-        return
+    print("   [!] MCP Service Status: NOT RUNNING")
+    if ask_confirmation("       Would you like to start the MCP service now?"):
+        try:
+            subprocess.run([sys.executable, "-m", "pkood.cli", "mcp"], check=True)
+            print("       MCP service started successfully.")
+            return True
+        except subprocess.CalledProcessError:
+            print("       [!] Failed to start MCP service automatically.")
+            print("       Please start it using: pkood mcp")
+            return False
+    else:
+        print("       Skipping MCP service startup.")
+        return True  # Not a hard failure for the test itself
+
+
+def _run_functional_test(gemini_path: str | None, claude_path: str | None, args):
+    from pkood.common import kill_agent_by_id
 
     print("\n--- Functional Test ---")
     test_agent_id = "pkood-test-runner"
+    all_passed = True
 
     # Make sure we're clean (silently)
     socket_path = SOCKETS_DIR / f"{test_agent_id}.sock"
@@ -532,3 +554,23 @@ def test_pkood(args):
     else:
         print("SOME TESTS FAILED.")
     print("=" * 30)
+
+
+def test_pkood(args):
+    print("Running Pkood System Tests...\n")
+    all_passed = _check_environment()
+
+    print("\n--- AI Agent & MCP Check ---")
+    gemini_path = _check_gemini()
+    claude_path = _check_claude()
+
+    if not _check_mcp_service():
+        all_passed = False
+
+    if not all_passed:
+        print(
+            "\n[!] Pre-flight checks failed. Please resolve the issues above and try again."
+        )
+        return
+
+    _run_functional_test(gemini_path, claude_path, args)
